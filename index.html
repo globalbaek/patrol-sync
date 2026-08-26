@@ -1152,6 +1152,29 @@
       selPerson.value = persons.has(currPerson) ? currPerson : "ALL";
     }
 
+    // 시간 순 정렬 키 계산 (야간 00:00~07:30은 자정 넘긴 익일 새벽이므로 +24시간 가산)
+    function getTimeSortKey(it) {
+      let hh = 0, mm = 0;
+      if (it.startHHmm && it.startHHmm.length >= 4) {
+        hh = parseInt(it.startHHmm.substring(0, 2), 10) || 0;
+        mm = parseInt(it.startHHmm.substring(2, 4), 10) || 0;
+      }
+      let minutes = hh * 60 + mm;
+      if (it.sessionChar === "N" && hh < 12) {
+        minutes += 24 * 60; // 익일 새벽 시간으로 정렬 (예: 23:00 -> 06:00 순)
+      }
+      return minutes;
+    }
+
+    function sortItemsByTime(items) {
+      return [...items].sort((a, b) => {
+        const timeA = getTimeSortKey(a);
+        const timeB = getTimeSortKey(b);
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.index || 0) - (b.index || 0);
+      });
+    }
+
     function applyFilters() {
       const sessionFilter = document.getElementById("sel-session").value;
       const carFilter = document.getElementById("sel-car").value;
@@ -1172,8 +1195,11 @@
         return true;
       });
 
-      renderCards(filtered);
-      renderTable(filtered);
+      // 시간 순서(야간 익일 새벽 고려)로 정렬하여 렌더링
+      const sorted = sortItemsByTime(filtered);
+
+      renderCards(sorted);
+      renderTable(sorted);
       updateProgress();
     }
 

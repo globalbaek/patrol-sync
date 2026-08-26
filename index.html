@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e3a8a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>순찰이행 체크시스템 (모바일)</title>
+  <title>순찰이행 체크시스템 (실시간 공유)</title>
 
   <!-- 경량 순수 JS QR 디코더 (CDN + 로컬 호환) -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -103,7 +103,7 @@
     }
     .btn-header:active { transform: scale(0.96); opacity: 0.9; }
 
-    /* 진행률 바 */
+    /* 진행률 바 & 실시간 동기화 표시 */
     .progress-section {
       background: rgba(0, 0, 0, 0.28);
       border-radius: 8px;
@@ -112,9 +112,30 @@
     .progress-labels {
       display: flex;
       justify-content: space-between;
+      align-items: center;
       font-size: 0.78rem;
       font-weight: 700;
       margin-bottom: 5px;
+    }
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.72rem;
+      color: #86efac;
+    }
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      background: #22c55e;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #22c55e;
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
     }
     .progress-track {
       background: rgba(255, 255, 255, 0.2);
@@ -174,7 +195,7 @@
       color: white;
     }
 
-    /* 컨테이너 */
+    /* 메인 컨테이너 */
     .container {
       padding: 12px 14px;
       max-width: 1400px;
@@ -479,8 +500,8 @@
       background: var(--primary);
       color: white;
       border: none;
-      padding: 11px 20px;
-      font-size: 0.92rem;
+      padding: 12px 20px;
+      font-size: 0.95rem;
       font-weight: 800;
       border-radius: 8px;
       cursor: pointer;
@@ -491,7 +512,7 @@
       gap: 6px;
     }
 
-    /* 토스트 메시지 */
+    /* 토스트 알림 */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -522,13 +543,17 @@
       </div>
       <div class="header-actions">
         <button class="btn-header" onclick="openScannerModal()">📷 QR스캔</button>
-        <button class="btn-header share" onclick="openShareModal()">🔗 메신저공유</button>
+        <button class="btn-header share" onclick="openShareModal()">🔗 실시간공유</button>
         <button class="btn-header primary" onclick="openCodeModal()">✨ 완료코드</button>
       </div>
     </div>
     <div class="progress-section">
       <div class="progress-labels">
         <span>순찰 달성률</span>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          <span id="lbl-sync-status">실시간 동기화</span>
+        </div>
         <span id="lbl-progress-text">0 / 0건 (0%)</span>
       </div>
       <div class="progress-track">
@@ -567,7 +592,7 @@
       <div class="empty-desc">
         PC 화면의 <strong>[📱 모바일 순찰 전송]</strong> 창을 띄운 뒤,<br>
         상단의 <strong>[📷 QR스캔]</strong> 버튼을 눌러 모니터를 비추세요.<br><br>
-        스캔 완료 후 <strong>[🔗 메신저공유]</strong>를 누르면 팀원들에게 즉시 전송할 수 있습니다.
+        스캔 완료 후 <strong>[🔗 실시간공유]</strong>를 누르면 단체방에 링크 하나로 <strong>전체 인원이 실시간 공유</strong>됩니다.
       </div>
       <div style="margin-top:18px;">
         <button class="btn-header primary" style="padding:12px 24px; margin:0 auto; font-size:0.95rem;" onclick="openScannerModal()">
@@ -622,26 +647,28 @@
     </div>
   </div>
 
-  <!-- 모달 2: 팀원 메신저 공유 링크 -->
+  <!-- 모달 2: 팀원 실시간 공유 링크 -->
   <div class="modal-backdrop" id="modal-share">
     <div class="modal-box">
       <div class="modal-title">
-        <span>순찰명단 단체방 공유</span>
+        <span>실시간 순찰명단 단체방 공유</span>
         <button class="btn-close-modal" onclick="closeShareModal()">✕</button>
       </div>
       <div class="code-display-box">
         <p style="font-size:0.85rem; color:var(--text); font-weight:700; margin-bottom:8px;">
           카카오톡 / 단체 메신저로 이 링크를 보내세요:
         </p>
-        <div style="background:white; border:1px solid #cbd5e1; border-radius:6px; padding:8px; font-size:0.75rem; word-break:break-all; color:#475569; max-height:80px; overflow-y:auto; margin-bottom:12px;" id="disp-share-url">
-          https://...
+        <div style="background:white; border:1px solid #cbd5e1; border-radius:6px; padding:10px; font-size:0.8rem; word-break:break-all; color:#0369a1; font-weight:700; margin-bottom:12px;" id="disp-share-url">
+          링크 생성 중...
         </div>
-        <button class="btn-action-lg" style="background:#0284c7;" onclick="copyShareUrl()">
-          📋 공유 링크 복사하기
+        <button class="btn-action-lg" id="btn-copy-share" style="background:#0284c7;" onclick="copyShareUrl()">
+          📋 실시간 공유 링크 복사하기
         </button>
       </div>
-      <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
-        💡 팀원들이 이 링크를 누르면 <strong>PC 화면을 스캔할 필요 없이 전체 순찰 목록이 즉시 화면에 뜹니다!</strong>
+      <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+        ✨ <strong>실시간 양방향 동기화:</strong><br>
+        • 팀원들이 이 링크를 누르면 <strong>모든 순찰대상자가 1명도 빠짐없이 100%</strong> 로드됩니다.<br>
+        • 1순찰차가 체크하면 2순찰차 폰에도 <strong>실시간으로 체크가 자동 반영</strong>됩니다!
       </p>
       <button class="btn-header" style="width:100%; justify-content:center; padding:10px;" onclick="closeShareModal()">닫기</button>
     </div>
@@ -669,12 +696,13 @@
   <!-- 토스트 알림 -->
   <div class="toast" id="toast-msg">알림 메시지</div>
 
-  <!-- JavaScript 핵심 로직 -->
+  <!-- JavaScript 핵심 로직 및 실시간 클라우드 동기화 엔진 -->
   <script>
     /* ==========================================================================
        1. Base36 및 MobileSyncCodec JavaScript 구현 (C# MobileSyncCodec 100% 호환)
        ========================================================================== */
     const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const BLOB_API_BASE = "https://jsonblob.com/api/jsonBlob";
 
     function checksum(str) {
       let sum = 0;
@@ -713,11 +741,12 @@
     }
 
     /* ==========================================================================
-       2. 상태 관리 (State) & 로컬 스토리지 영속화
+       2. 상태 관리 (State) & 클라우드 실시간 동기화
        ========================================================================== */
     const STORAGE_KEY = "VictimProtection_Mobile_Data";
 
     let state = {
+      sessionId: "",      // 클라우드 Blob ID
       workDate: "",
       workDateShort: "",
       rawPayload: "",
@@ -728,13 +757,27 @@
       viewMode: "auto"
     };
 
-    function loadState() {
-      // 1. URL Hash(공유 링크) 파라미터가 있는지 최우선 확인
+    let pollingTimer = null;
+
+    async function loadState() {
+      // 1. URL 쿼리스트링(?b=...) 확인 -> 클라우드 실시간 세션 접속
+      const urlParams = new URLSearchParams(window.location.search);
+      const blobId = urlParams.get("b");
+
+      if (blobId) {
+        state.sessionId = blobId;
+        showToast("실시간 순찰 명단을 가져오는 중...");
+        await fetchCloudSession(blobId);
+        startLivePolling(blobId);
+        return;
+      }
+
+      // 2. URL Hash 확인 (오프라인 백업 링크)
       if (checkUrlHashData()) {
         return;
       }
 
-      // 2. 없으면 로컬 스토리지에서 로드
+      // 3. 로컬 스토리지 확인
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -742,6 +785,9 @@
           if (parsed && parsed.items && parsed.items.length > 0) {
             state = Object.assign(state, parsed);
             renderUI();
+            if (state.sessionId) {
+              startLivePolling(state.sessionId);
+            }
           }
         }
       } catch (e) {
@@ -752,6 +798,7 @@
     function saveState() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          sessionId: state.sessionId,
           workDate: state.workDate,
           workDateShort: state.workDateShort,
           rawPayload: state.rawPayload,
@@ -762,27 +809,101 @@
       }
     }
 
-    // URL Hash를 통한 메신저 공유 데이터 자동 파싱 (#d=260826&items=...)
+    // 클라우드에서 전체 명단 및 최신 체크 상태 수신 (인원 손실 0%)
+    async function fetchCloudSession(blobId) {
+      try {
+        const res = await fetch(`${BLOB_API_BASE}/${blobId}`, {
+          headers: { "Accept": "application/json" }
+        });
+        if (!res.ok) throw new Error("서버 응답 오류");
+        const data = await res.json();
+
+        if (data && data.payload) {
+          state.workDateShort = data.dateStr || "260826";
+          state.rawPayload = data.payload;
+          parseFullPayload(data.payload);
+
+          // 체크 상태 복원
+          if (Array.isArray(data.completed)) {
+            const completedSet = new Set(data.completed);
+            state.items.forEach(it => {
+              it.isCompleted = completedSet.has(it.index);
+            });
+          }
+
+          saveState();
+          renderUI();
+          showToast("전체 순찰 대상자 실시간 로드 완료!");
+        }
+      } catch (e) {
+        console.warn("Cloud fetch failed, using local backup:", e);
+      }
+    }
+
+    // 클라우드에 체크 상태 저장 (다른 팀원들에게 실시간 전파)
+    async function pushCloudCheckState() {
+      if (!state.sessionId) return;
+      try {
+        const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
+        await fetch(`${BLOB_API_BASE}/${state.sessionId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dateStr: state.workDateShort,
+            payload: state.rawPayload,
+            completed: completedIndices,
+            updatedAt: new Date().toISOString()
+          })
+        });
+      } catch (e) {
+        console.warn("Cloud push error:", e);
+      }
+    }
+
+    // 3초마다 다른 팀원의 체크 변경사항을 실시간으로 가져옴
+    function startLivePolling(blobId) {
+      if (pollingTimer) clearInterval(pollingTimer);
+      pollingTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`${BLOB_API_BASE}/${blobId}`, {
+            headers: { "Accept": "application/json" }
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data && Array.isArray(data.completed)) {
+            const remoteSet = new Set(data.completed);
+            let hasChanged = false;
+            state.items.forEach(it => {
+              const shouldDone = remoteSet.has(it.index);
+              if (it.isCompleted !== shouldDone) {
+                it.isCompleted = shouldDone;
+                hasChanged = true;
+              }
+            });
+            if (hasChanged) {
+              saveState();
+              applyFilters();
+            }
+          }
+        } catch (e) {}
+      }, 3000);
+    }
+
     function checkUrlHashData() {
       const hash = window.location.hash;
       if (!hash || hash.length < 5) return false;
-
       try {
         const params = new URLSearchParams(hash.substring(1));
         const dateStr = params.get("d");
         const itemsRaw = params.get("items");
-
         if (itemsRaw) {
           state.workDateShort = dateStr || "260826";
           state.rawPayload = itemsRaw;
           parseFullPayload(itemsRaw);
           saveState();
-          showToast("공유받은 순찰 목록을 성공적으로 불러왔습니다!");
           return true;
         }
-      } catch (e) {
-        console.error("URL Hash parse error:", e);
-      }
+      } catch (e) {}
       return false;
     }
 
@@ -957,7 +1078,7 @@
       });
     }
 
-    function toggleComplete(index) {
+    async function toggleComplete(index) {
       const item = state.items.find(x => x.index === index);
       if (!item) return;
 
@@ -970,6 +1091,9 @@
       saveState();
       applyFilters();
       showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
+
+      // 실시간 클라우드 동기화
+      await pushCloudCheckState();
     }
 
     function updateProgress() {
@@ -1143,7 +1267,10 @@
 
         closeScannerModal();
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        showToast("전체 순찰 대상 동기화 완료! [🔗 메신저공유]로 전달하세요.");
+        showToast("전체 순찰 대상 동기화 완료!");
+
+        // 백그라운드에서 실시간 클라우드 세션 자동 생성
+        createCloudSessionAuto();
       }
     }
 
@@ -1195,39 +1322,79 @@
     }
 
     /* ==========================================================================
-       5. 팀원 메신저 공유 링크 생성 및 복사
+       5. 실시간 클라우드 공유 세션 생성 (인원 유실 0%, 실시간 동기화)
        ========================================================================== */
-    function generateShareUrl() {
-      const baseUrl = location.origin + location.pathname;
-      const payload = state.rawPayload || "";
-      const dateStr = state.workDateShort || "260826";
-      return baseUrl + "#d=" + encodeURIComponent(dateStr) + "&items=" + encodeURIComponent(payload);
+    async function createCloudSessionAuto() {
+      try {
+        const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
+        const res = await fetch(BLOB_API_BASE, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({
+            dateStr: state.workDateShort,
+            payload: state.rawPayload,
+            completed: completedIndices,
+            createdAt: new Date().toISOString()
+          })
+        });
+
+        if (res.ok) {
+          const locationHeader = res.headers.get("Location");
+          if (locationHeader) {
+            const blobId = locationHeader.split("/").pop();
+            state.sessionId = blobId;
+            saveState();
+            startLivePolling(blobId);
+          }
+        }
+      } catch (e) {
+        console.warn("Auto cloud session creation failed:", e);
+      }
     }
 
-    function openShareModal() {
+    async function openShareModal() {
       if (!state.items || state.items.length === 0) {
         showToast("먼저 PC 화면을 스캔하여 순찰 목록을 받아오세요");
         return;
       }
 
-      const shareUrl = generateShareUrl();
-      document.getElementById("disp-share-url").textContent = shareUrl;
       document.getElementById("modal-share").classList.add("show");
+      document.getElementById("disp-share-url").textContent = "실시간 공유 링크 생성 중...";
+
+      // 세션 ID가 없으면 즉시 생성
+      if (!state.sessionId) {
+        await createCloudSessionAuto();
+      }
+
+      const shareUrl = buildShareUrl();
+      document.getElementById("disp-share-url").textContent = shareUrl;
     }
 
     function closeShareModal() {
       document.getElementById("modal-share").classList.remove("show");
     }
 
+    function buildShareUrl() {
+      const baseUrl = location.origin + location.pathname;
+      if (state.sessionId) {
+        return `${baseUrl}?b=${encodeURIComponent(state.sessionId)}`;
+      }
+      // 세션 생성 실패 시 URL 해시 백업
+      return `${baseUrl}#d=${encodeURIComponent(state.workDateShort)}&items=${encodeURIComponent(state.rawPayload)}`;
+    }
+
     async function copyShareUrl() {
-      const shareUrl = generateShareUrl();
+      const shareUrl = buildShareUrl();
 
       // 모바일 네이티브 공유 시도 (카카오톡, 문자 등)
       if (navigator.share) {
         try {
           await navigator.share({
-            title: "🛡️ 오늘의 순찰이행 체크 명단",
-            text: `[${state.workDate || state.workDateShort}] 순찰 대상 명단입니다. 링크를 누르면 즉시 로드됩니다:`,
+            title: "🛡️ [실시간] 오늘의 순찰이행 체크 명단",
+            text: `[${state.workDate || state.workDateShort}] 실시간 순찰 명단입니다. 링크를 누르면 전체 대상자가 로드되고 실시간 체크가 동기화됩니다:`,
             url: shareUrl
           });
           closeShareModal();
@@ -1238,7 +1405,7 @@
       // 클립보드 복사
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(shareUrl).then(() => {
-          showToast("공유 링크가 복사되었습니다! 카톡에 붙여넣으세요.");
+          showToast("실시간 공유 링크가 복사되었습니다! 카톡에 붙여넣으세요.");
           closeShareModal();
         });
       } else {

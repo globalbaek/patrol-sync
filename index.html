@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#1e3a8a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>순찰이행 체크시스템 (실시간 공유)</title>
+  <title>범피 모바일 매니저</title>
 
   <!-- 경량 순수 JS QR 디코더 (CDN + 로컬 호환) -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -176,7 +176,7 @@
       color: var(--text);
       outline: none;
     }
-    .filter-select { font-weight: 700; flex: 1 1 auto; min-width: 100px; }
+    .filter-select { font-weight: 700; flex: 1 1 auto; min-width: 100px; cursor: pointer; }
     .search-input { flex: 2 1 140px; }
     .view-toggle-group {
       display: flex;
@@ -398,6 +398,7 @@
       font-weight: 800;
       border-radius: 6px;
       cursor: pointer;
+      white-space: nowrap;
     }
     .btn-table-check.done {
       background: #16a34a;
@@ -556,7 +557,7 @@
   <header>
     <div class="header-top">
       <div class="app-title">
-        <span>🛡️ 순찰이행 체크</span>
+        <span>🛡️ 범피 모바일 매니저</span>
         <span class="badge-date" id="lbl-date">-</span>
       </div>
       <div class="header-actions">
@@ -580,23 +581,23 @@
     </div>
   </header>
 
-  <!-- 툴바 및 필터 -->
+  <!-- 툴바 및 필터 (선택 즉시 자동 반영) -->
   <div class="toolbar">
-    <select class="filter-select" id="sel-session" onchange="applyFilters()">
+    <select class="filter-select" id="sel-session" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
       <option value="ALL">전체 세션</option>
       <option value="D">주간 근무</option>
       <option value="N">야간 근무</option>
     </select>
-    <select class="filter-select" id="sel-car" onchange="applyFilters()">
+    <select class="filter-select" id="sel-car" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
       <option value="ALL">전체 순찰차</option>
     </select>
-    <select class="filter-select" id="sel-person" onchange="applyFilters()">
+    <select class="filter-select" id="sel-person" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
       <option value="ALL">전체 담당자</option>
     </select>
     <input type="text" class="search-input" id="txt-search" placeholder="대상자/위치/주소 검색..." oninput="applyFilters()">
     <div class="view-toggle-group">
       <button class="btn-toggle active" id="btn-view-card" onclick="setViewMode('card')">카드</button>
-      <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('표')">표</button>
+      <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('table')">표</button>
     </div>
   </div>
 
@@ -610,7 +611,7 @@
       <div class="empty-desc">
         PC 화면의 <strong>[📱 모바일 순찰 전송]</strong> 창을 띄운 뒤,<br>
         상단의 <strong>[📷 QR스캔]</strong> 버튼을 눌러 모니터를 비추세요.<br><br>
-        스캔 완료 후 <strong>[🔗 실시간공유]</strong>를 누르면 단체방에 링크 하나로 <strong>주소와 담당자가 실시간 공유</strong>됩니다.
+        스캔 완료 후 <strong>[🔗 실시간공유]</strong>를 누르면 단체방에 링크 하나로 <strong>주소와 이행상황이 실시간 공유</strong>됩니다.
       </div>
       <div style="margin-top:18px;">
         <button class="btn-header primary" style="padding:12px 24px; margin:0 auto; font-size:0.95rem;" onclick="openScannerModal()">
@@ -687,7 +688,7 @@
       <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
         ✨ <strong>주소 표시 & 실시간 체크 연동:</strong><br>
         • 링크를 누르면 전체 대상자(<span id="lbl-share-count">0</span>명)의 <strong>주소와 매칭인력</strong>이 정확하게 표시됩니다.<br>
-        • 팀원들이 체크한 내역이 서로의 폰에 실시간으로 자동 업데이트됩니다!
+        • 팀원들이 체크한 내역 및 <strong>체크 시각(00:00)이 실시간으로 상호 업데이트</strong>됩니다!
       </p>
       <button class="btn-header" style="width:100%; justify-content:center; padding:10px;" onclick="closeShareModal()">닫기</button>
     </div>
@@ -715,7 +716,7 @@
   <!-- 토스트 알림 -->
   <div class="toast" id="toast-msg">알림 메시지</div>
 
-  <!-- JavaScript 핵심 로직: 주소 지원, 매칭인력 공백 포매팅, 실시간 동기화 엔진 -->
+  <!-- JavaScript 핵심 로직: 체크 시각 지원, 드롭박스 즉시 반응, 실시간 동기화 -->
   <script>
     /* ==========================================================================
        1. Base36 및 MobileSyncCodec JavaScript 구현 (C# MobileSyncCodec 100% 호환)
@@ -759,13 +760,12 @@
       return display;
     }
 
-    // 계급과 이름 사이에 띄어쓰기 자동 보정 함수 (경위홍길동 -> 경위 홍길동)
     function formatMatchedPersons(text) {
       if (!text || text === "-") return "-";
       const ranks = ["치안총감", "치안정감", "치안감", "경무관", "총경", "경정", "경감", "경위", "경사", "경장", "순경", "행정관", "주무관"];
       let parts = text.split(/[,/]/).map(p => p.trim());
       let formatted = parts.map(part => {
-        if (part.includes(" ")) return part; // 이미 띄어쓰기가 있으면 유지
+        if (part.includes(" ")) return part;
         for (let r of ranks) {
           if (part.startsWith(r) && part.length > r.length) {
             return r + " " + part.substring(r.length);
@@ -777,7 +777,7 @@
     }
 
     /* ==========================================================================
-       2. UTF-8 안전 Base64 직렬화 (주소 포함 & 인원 수 손실 0% 보장)
+       2. UTF-8 안전 Base64 직렬화 (체크 시각 & 주소 포함)
        ========================================================================== */
     function encodePayloadPack(items, dateStr, sessionId) {
       try {
@@ -795,7 +795,8 @@
             car: it.patrolCar,
             p: it.matchedPersonsText,
             d: it.isCompleted ? 1 : 0,
-            a: it.address || ""
+            a: it.address || "",
+            t: it.completedTime || ""
           }))
         };
         const jsonStr = JSON.stringify(payloadObj);
@@ -832,7 +833,8 @@
               patrolCar: x.car !== undefined ? x.car : x.patrolCar,
               matchedPersonsText: formatMatchedPersons(x.p !== undefined ? x.p : x.matchedPersonsText),
               isCompleted: x.d === 1 || x.isCompleted === true,
-              address: x.a !== undefined ? x.a : (x.address || "")
+              address: x.a !== undefined ? x.a : (x.address || ""),
+              completedTime: x.t || ""
             }))
           };
         }
@@ -844,10 +846,10 @@
     }
 
     /* ==========================================================================
-       3. 상태 관리 (State) & 체크 상태 영구 보존
+       3. 상태 관리 (State) & 체크 시각 영구 보존
        ========================================================================== */
-    const STORAGE_KEY_DATA = "VictimProtection_Mobile_Data_v4";
-    const STORAGE_KEY_CHECKS = "VictimProtection_Mobile_Checks_v4";
+    const STORAGE_KEY_DATA = "VictimProtection_Mobile_Data_v5";
+    const STORAGE_KEY_CHECKS = "VictimProtection_Mobile_Checks_v5";
 
     let state = {
       sessionId: "",
@@ -862,20 +864,21 @@
 
     let livePollingTimer = null;
 
-    function getLocalCompletedSet(dateStr) {
+    // 로컬에 저장된 { [index]: "21:45" } 맵 불러오기
+    function getLocalCompletedTimesMap(dateStr) {
       try {
         const saved = localStorage.getItem(`${STORAGE_KEY_CHECKS}_${dateStr || "curr"}`);
         if (saved) {
-          const arr = JSON.parse(saved);
-          if (Array.isArray(arr)) return new Set(arr);
+          const map = JSON.parse(saved);
+          if (map && typeof map === "object") return map;
         }
       } catch (e) {}
-      return new Set();
+      return {};
     }
 
-    function saveLocalCompletedSet(dateStr, set) {
+    function saveLocalCompletedTimesMap(dateStr, map) {
       try {
-        localStorage.setItem(`${STORAGE_KEY_CHECKS}_${dateStr || "curr"}`, JSON.stringify(Array.from(set)));
+        localStorage.setItem(`${STORAGE_KEY_CHECKS}_${dateStr || "curr"}`, JSON.stringify(map));
       } catch (e) {}
     }
 
@@ -899,10 +902,13 @@
               state.workDateShort = parsed.workDateShort || "";
               state.items = parsed.items;
 
-              const localChecks = getLocalCompletedSet(state.workDateShort);
+              const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
               state.items.forEach(it => {
                 it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
-                if (localChecks.has(it.index)) it.isCompleted = true;
+                if (localCheckTimes[it.index] !== undefined) {
+                  it.isCompleted = true;
+                  it.completedTime = localCheckTimes[it.index];
+                }
               });
 
               renderUI();
@@ -929,8 +935,13 @@
           items: state.items
         }));
 
-        const completedIndices = new Set(state.items.filter(x => x.isCompleted).map(x => x.index));
-        saveLocalCompletedSet(state.workDateShort, completedIndices);
+        const checkTimesMap = {};
+        state.items.forEach(it => {
+          if (it.isCompleted) {
+            checkTimesMap[it.index] = it.completedTime || "";
+          }
+        });
+        saveLocalCompletedTimesMap(state.workDateShort, checkTimesMap);
       } catch (e) {
         console.error("Local storage save error:", e);
       }
@@ -950,13 +961,14 @@
             state.workDateShort = unpacked.dateStr || "260826";
             if (unpacked.sessionId) state.sessionId = unpacked.sessionId;
 
-            const localChecks = getLocalCompletedSet(state.workDateShort);
+            const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
 
             state.items = unpacked.items;
             state.items.forEach(it => {
               it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
-              if (localChecks.has(it.index)) {
+              if (localCheckTimes[it.index] !== undefined) {
                 it.isCompleted = true;
+                it.completedTime = localCheckTimes[it.index];
               }
             });
 
@@ -973,7 +985,7 @@
     }
 
     /* ==========================================================================
-       4. 실시간 클라우드 동기화 엔진 (Real-time Live Sync)
+       4. 실시간 클라우드 동기화 엔진 (체크 시각 포함)
        ========================================================================== */
     function setSyncStatus(text, isOk = true) {
       const el = document.getElementById("lbl-sync-status");
@@ -989,6 +1001,11 @@
       try {
         setSyncStatus("클라우드 세션 생성 중...");
         const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
+        const completedTimes = {};
+        state.items.forEach(x => {
+          if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
+        });
+
         const res = await fetch(CLOUD_SYNC_API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -997,6 +1014,7 @@
             data: {
               date: state.workDateShort,
               completed: completedIndices,
+              completedTimes: completedTimes,
               updatedAt: new Date().toISOString()
             }
           })
@@ -1026,6 +1044,11 @@
 
       try {
         const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
+        const completedTimes = {};
+        state.items.forEach(x => {
+          if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
+        });
+
         await fetch(`${CLOUD_SYNC_API}/${state.sessionId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -1034,6 +1057,7 @@
             data: {
               date: state.workDateShort,
               completed: completedIndices,
+              completedTimes: completedTimes,
               updatedAt: new Date().toISOString()
             }
           })
@@ -1055,12 +1079,15 @@
 
         if (json && json.data && Array.isArray(json.data.completed)) {
           const remoteCompletedSet = new Set(json.data.completed);
+          const remoteTimes = json.data.completedTimes || {};
           let hasChange = false;
 
           state.items.forEach(it => {
             const shouldBeDone = remoteCompletedSet.has(it.index);
-            if (it.isCompleted !== shouldBeDone) {
+            const remoteTime = remoteTimes[it.index] || "";
+            if (it.isCompleted !== shouldBeDone || (shouldBeDone && it.completedTime !== remoteTime)) {
               it.isCompleted = shouldBeDone;
+              it.completedTime = remoteTime;
               hasChange = true;
             }
           });
@@ -1083,7 +1110,7 @@
     }
 
     /* ==========================================================================
-       5. UI 렌더링 & 스마트 필터 (주소 및 계급 띄어쓰기 반영)
+       5. UI 렌더링 & 스마트 필터
        ========================================================================== */
     function formatTime(t) {
       if (!t || t.length < 4) return t || "-";
@@ -1195,7 +1222,6 @@
         return true;
       });
 
-      // 시간 순서(야간 익일 새벽 고려)로 정렬하여 렌더링
       const sorted = sortItemsByTime(filtered);
 
       renderCards(sorted);
@@ -1220,6 +1246,10 @@
         const locName = locationName(it.locationChar);
         const sessionName = it.sessionChar === "D" ? "주간" : "야간";
         const formattedPersons = formatMatchedPersons(it.matchedPersonsText);
+
+        const doneButtonLabel = it.isCompleted 
+          ? (it.completedTime ? `✓ 이행완료 (${it.completedTime})` : `✓ 이행완료`)
+          : "순찰 이행 체크";
 
         card.innerHTML = `
           <div class="card-header">
@@ -1248,7 +1278,7 @@
             </div>
           </div>
           <button class="btn-complete-toggle ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
-            ${it.isCompleted ? "✓ 이행완료" : "순찰 이행 체크"}
+            ${doneButtonLabel}
           </button>
         `;
         container.appendChild(card);
@@ -1268,10 +1298,14 @@
         const sessionName = it.sessionChar === "D" ? "주간" : "야간";
         const formattedPersons = formatMatchedPersons(it.matchedPersonsText);
 
+        const tableDoneButtonLabel = it.isCompleted
+          ? (it.completedTime ? `✓ 완료 (${it.completedTime})` : `✓ 완료`)
+          : "체크";
+
         tr.innerHTML = `
           <td>
             <button class="btn-table-check ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
-              ${it.isCompleted ? "✓ 완료" : "체크"}
+              ${tableDoneButtonLabel}
             </button>
           </td>
           <td><strong>${it.seqLabel}</strong></td>
@@ -1291,7 +1325,16 @@
       const item = state.items.find(x => x.index === index);
       if (!item) return;
 
-      item.isCompleted = !item.isCompleted;
+      if (item.isCompleted) {
+        item.isCompleted = false;
+        item.completedTime = "";
+      } else {
+        item.isCompleted = true;
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        item.completedTime = `${hh}:${mm}`;
+      }
 
       if (navigator.vibrate) {
         navigator.vibrate(item.isCompleted ? [40, 50, 40] : 30);
@@ -1299,7 +1342,7 @@
 
       saveState();
       applyFilters();
-      showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
+      showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료 (${item.completedTime})` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
 
       await pushCloudChecks();
     }
@@ -1514,14 +1557,18 @@
             patrolCar: f[7],
             matchedPersonsText: formatMatchedPersons(f[8]),
             isCompleted: f[9] === "1",
-            address: f.length >= 11 ? f.slice(10).join(":") : ""
+            address: f.length >= 11 ? f.slice(10).join(":") : "",
+            completedTime: ""
           });
         }
       });
 
-      const localChecks = getLocalCompletedSet(state.workDateShort);
+      const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
       items.forEach(it => {
-        if (localChecks.has(it.index)) it.isCompleted = true;
+        if (localCheckTimes[it.index] !== undefined) {
+          it.isCompleted = true;
+          it.completedTime = localCheckTimes[it.index];
+        }
       });
 
       state.items = items;
@@ -1568,8 +1615,8 @@
       if (navigator.share) {
         try {
           await navigator.share({
-            title: "🛡️ [실시간 동기화] 오늘의 순찰이행 체크 명단",
-            text: `[${state.workDate || state.workDateShort}] 순찰 대상자(${state.items.length}명) 실시간 체크 명단입니다. 링크를 열면 체크 현황이 실시간 공유됩니다:`,
+            title: "🛡️ [범피 모바일 매니저] 실시간 순찰 명단",
+            text: `[${state.workDate || state.workDateShort}] 범피 모바일 순찰 대상자(${state.items.length}명) 명단입니다:`,
             url: shareUrl
           });
           closeShareModal();

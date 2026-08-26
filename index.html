@@ -722,7 +722,15 @@
        1. Base36 및 포매터
        ========================================================================== */
     const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const CLOUD_SYNC_API = "https://api.restful-api.dev/objects";
+
+    // ===== Firebase Realtime Database 설정 =====
+    // 무료 Firebase 프로젝트의 Realtime Database URL을 아래에 넣어주세요
+    // (Firebase 콘솔 > 빌드 > Realtime Database 화면 상단에 표시되는
+    //  "https://프로젝트이름-default-rtdb.리전.firebasedatabase.app" 형식의 주소).
+    // 비워두면(기본값) 실시간공유 없이도 QR 전송/완료코드 등 나머지 기능은 그대로
+    // 정상 동작한다 - 클라우드 미설정을 화면에 알리고 자동으로 조용히 건너뛴다.
+    const FIREBASE_DB_URL = "https://bumpy-mobile-system-default-rtdb.firebaseio.com"; // 끝의 '/'는 뺀다(경로 조합 시 중복 슬래시 방지)
+    const FIREBASE_SYNC_PATH = "patrolSync";
 
     function checksum(str) {
       let sum = 0;
@@ -865,6 +873,12 @@
 
     let livePollingTimer = null;
     let lastLocalEditTimestamp = 0; // 로컬 체크 직후 클라우드 덮어쓰기 방지 락
+
+    // 더 이상 자동 재시도가 의미 없는 상태(요청 한도 초과, Firebase 보안 규칙 거부 등)에
+    // 빠지면 true로 바뀐다. 이후 자동 폴링/재시도를 완전히 멈추고 사용자에게 명확히
+    // 알린다 - 안 그러면 "재시도 중..."이라는 문구만 계속 떠서 실제로는 동기화가
+    // 멈췄다는 걸 알 방법이 없다.
+    let cloudSyncBlocked = false;
 
     function getStorageKeyData(dateStr) {
       return STORAGE_PREFIX_DATA + (dateStr || state.workDateShort || "default");
@@ -1016,8 +1030,30 @@
       }
     }
 
+    function firebaseConfigured() {
+      return !!FIREBASE_DB_URL && FIREBASE_DB_URL.indexOf("https://") === 0;
+    }
+
+    /// 더 이상 자동으로 재시도해봐야 소용없는 상태(요청 한도 초과, 보안 규칙 거부 등)에
+    /// 빠졌을 때 호출한다. 이후 자동 폴링/재시도를 전부 멈추고, 실제로는 팀원과 동기화가
+    /// 안 되고 있다는 사실을 화면에 분명히 남긴다(완료코드로 PC에 직접 반영하는 방법은
+    /// 클라우드와 무관하게 항상 정상 동작한다). 새로고침하면 다시 시도한다.
+    function stopCloudSync(message) {
+      cloudSyncBlocked = true;
+      if (livePollingTimer) {
+        clearInterval(livePollingTimer);
+        livePollingTimer = null;
+      }
+      setSyncStatus(message, false);
+    }
+
     async function ensureCloudSession() {
       if (state.sessionId) return state.sessionId;
+      if (cloudSyncBlocked) return null;
+      if (!firebaseConfigured()) {
+        setSyncStatus("☁ 클라우드 미설정 - 완료코드를 이용해주세요", false);
+        return null;
+      }
 
       try {
         setSyncStatus("클라우드 세션 연결 중...");
@@ -1027,38 +1063,50 @@
           if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
         });
 
-        const res = await fetch(CLOUD_SYNC_API, {
+        // Firebase Realtime DB에 POST하면 자동 생성된 키를 돌려준다 - 이 키를
+        // restful-api.dev의 "id"와 같은 역할(세션 식별자)로 그대로 쓴다.
+        const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}.json`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: `PatrolSync_${state.workDateShort || "260826"}`,
-            data: {
-              date: state.workDateShort,
-              completed: completedIndices,
-              completedTimes: completedTimes,
-              updatedAt: new Date().toISOString()
-            }
+            date: state.workDateShort,
+            completed: completedIndices,
+            completedTimes: completedTimes,
+            updatedAt: new Date().toISOString()
           })
         });
 
+        if (res.status === 401 || res.status === 403) {
+          stopCloudSync("⚠ Firebase 접근 거부 - 보안 규칙을 확인해주세요 (완료코드 이용 가능)");
+          return null;
+        }
+        if (res.status === 429) {
+          stopCloudSync("⚠ 실시간공유 요청 한도 초과 - 완료코드로 동기화해주세요");
+          return null;
+        }
+
         if (res.ok) {
           const json = await res.json();
-          if (json && json.id) {
-            state.sessionId = json.id;
+          if (json && json.name) {
+            state.sessionId = json.name;
             saveState();
             startLivePolling();
             setSyncStatus("실시간 동기화 활성");
-            return json.id;
+            return json.name;
           }
         }
+        setSyncStatus("클라우드 연결 실패 - 완료코드를 이용해주세요", false);
       } catch (e) {
         console.warn("Cloud session create failed:", e);
+        setSyncStatus("클라우드 연결 오류 - 완료코드를 이용해주세요", false);
       }
       return null;
     }
 
     async function pushCloudChecks() {
+      if (cloudSyncBlocked) return;
       if (!state.sessionId) {
+        // 미설정 상태 메시지는 ensureCloudSession이 자체적으로 표시한다.
         await ensureCloudSession();
         if (!state.sessionId) return;
       }
@@ -1070,24 +1118,28 @@
           if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
         });
 
-        const res = await fetch(`${CLOUD_SYNC_API}/${state.sessionId}`, {
+        const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}/${state.sessionId}.json`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: `PatrolSync_${state.workDateShort}`,
-            data: {
-              date: state.workDateShort,
-              completed: completedIndices,
-              completedTimes: completedTimes,
-              updatedAt: new Date().toISOString()
-            }
+            date: state.workDateShort,
+            completed: completedIndices,
+            completedTimes: completedTimes,
+            updatedAt: new Date().toISOString()
           })
         });
 
-        if (res.status === 404) {
-          // 세션 만료 시 즉시 새 세션 발급
-          state.sessionId = "";
-          await ensureCloudSession();
+        if (res.status === 401 || res.status === 403) {
+          stopCloudSync("⚠ Firebase 접근 거부 - 보안 규칙을 확인해주세요 (완료코드 이용 가능)");
+          return;
+        }
+        if (res.status === 429) {
+          stopCloudSync("⚠ 실시간공유 요청 한도 초과 - 완료코드로 동기화해주세요");
+          return;
+        }
+
+        if (!res.ok) {
+          setSyncStatus("동기화 실패 - 완료코드를 이용해주세요", false);
           return;
         }
 
@@ -1099,6 +1151,8 @@
     }
 
     async function fetchCloudChecks() {
+      if (cloudSyncBlocked) return;
+      if (!firebaseConfigured()) return;
       if (!state.sessionId) return;
 
       // 사용자가 최근 4초 이내에 로컬에서 체크를 수정한 경우 클라우드 덮어쓰기 일시 중지 (Race Condition 방어)
@@ -1107,18 +1161,29 @@
       }
 
       try {
-        const res = await fetch(`${CLOUD_SYNC_API}/${state.sessionId}`);
-        if (!res.ok) return;
-        const json = await res.json();
+        const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}/${state.sessionId}.json`);
 
-        if (json && json.data && Array.isArray(json.data.completed)) {
+        if (res.status === 401 || res.status === 403) {
+          stopCloudSync("⚠ Firebase 접근 거부 - 보안 규칙을 확인해주세요 (완료코드 이용 가능)");
+          return;
+        }
+        if (res.status === 429) {
+          stopCloudSync("⚠ 실시간공유 요청 한도 초과 - 완료코드로 동기화해주세요");
+          return;
+        }
+        if (!res.ok) return;
+
+        // Firebase는 restful-api.dev와 달리 {data:...} 래핑 없이 저장한 객체를
+        // 그대로 돌려준다(경로가 비어있으면 null).
+        const data = await res.json();
+        if (data && Array.isArray(data.completed)) {
           // 만약 원격 데이터의 날짜가 현재 날짜와 다르면 무시
-          if (json.data.date && json.data.date !== state.workDateShort) {
+          if (data.date && data.date !== state.workDateShort) {
             return;
           }
 
-          const remoteCompletedSet = new Set(json.data.completed);
-          const remoteTimes = json.data.completedTimes || {};
+          const remoteCompletedSet = new Set(data.completed);
+          const remoteTimes = data.completedTimes || {};
           let hasChange = false;
 
           state.items.forEach(it => {
@@ -1144,10 +1209,29 @@
       }
     }
 
+    // Firebase 무료(Spark) 요금제는 폴링 몇 초 간격 정도로는 한도에 걸리지 않지만,
+    // 그래도 화면이 꺼져있거나 다른 앱으로 전환돼있는 동안(순찰 중 휴대폰이 주머니에
+    // 있는 시간이 대부분)은 폴링을 멈춰 불필요한 트래픽을 아낀다. 화면으로 돌아오면
+    // 즉시 한 번 갱신한다.
+    const LIVE_POLL_INTERVAL_MS = 5000;
+
     function startLivePolling() {
+      if (cloudSyncBlocked) return;
       if (livePollingTimer) clearInterval(livePollingTimer);
-      livePollingTimer = setInterval(fetchCloudChecks, 3000);
+      livePollingTimer = setInterval(fetchCloudChecks, LIVE_POLL_INTERVAL_MS);
     }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (livePollingTimer) {
+          clearInterval(livePollingTimer);
+          livePollingTimer = null;
+        }
+      } else if (state.sessionId && !cloudSyncBlocked) {
+        fetchCloudChecks();
+        startLivePolling();
+      }
+    });
 
     /* ==========================================================================
        5. UI 렌더링 & 스마트 필터

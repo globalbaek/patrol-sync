@@ -107,7 +107,22 @@
 <script>
 // ===== 프레임/완료코드 형식은 C# MobileSyncCodec.cs와 반드시 1:1로 일치해야 한다 =====
 const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const JSONBLOB_BASE = "https://jsonblob.com/api/jsonBlob";
+// MantleDB: 계정/키 없이 쓸 수 있는 무료 익명 JSON 저장소. jsonblob과 달리 "새로 만든
+// 항목이 어디 저장됐는지"를 서버가 응답 헤더로 알려주는 방식이 아니라, 우리가 미리
+// 무작위 ID를 만들어서 그 경로로 저장한다 — 그래서 브라우저가 응답 헤더를 읽지
+// 못해서(CORS) 생기는 문제 자체가 원천적으로 없다.
+const MANTLE_BASE = "https://mantledb.sh/v2";
+const MANTLE_NAMESPACE = "vps-patrol-sync";
+
+function randomSessionId() {
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => BASE36[b % 36]).join("");
+}
+
+function entryUrl(sessionId) {
+  return MANTLE_BASE + "/" + MANTLE_NAMESPACE + "/" + sessionId;
+}
 
 function toBase36(value, width) {
   let v = value, s = "";
@@ -233,7 +248,7 @@ function runShareMode(blobId) {
 
   async function fetchState() {
     try {
-      const res = await fetch(JSONBLOB_BASE + "/" + blobId, { headers: { "Accept": "application/json" } });
+      const res = await fetch(entryUrl(blobId), { headers: { "Accept": "application/json" } });
       if (!res.ok) throw new Error("서버 응답 오류(" + res.status + ")");
       const data = await res.json();
       checkedIndices = new Set(data.checked || []);
@@ -246,12 +261,12 @@ function runShareMode(blobId) {
   async function toggleCheck(idx, isChecked) {
     // 다른 사람이 그 사이에 체크했을 수 있으니, 최신 상태를 다시 받아온 뒤 반영해서 저장한다.
     try {
-      const res = await fetch(JSONBLOB_BASE + "/" + blobId);
+      const res = await fetch(entryUrl(blobId));
       const data = res.ok ? await res.json() : { checked: [] };
       const current = new Set(data.checked || []);
       if (isChecked) current.add(idx); else current.delete(idx);
-      const putRes = await fetch(JSONBLOB_BASE + "/" + blobId, {
-        method: "PUT",
+      const putRes = await fetch(entryUrl(blobId), {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ checked: Array.from(current) }),
       });
@@ -313,21 +328,19 @@ function runScanMode() {
     makeLinkBtn.disabled = true;
     makeLinkBtn.textContent = "링크 만드는 중...";
     try {
-      const res = await fetch(JSONBLOB_BASE, {
+      const newSessionId = randomSessionId();
+      const res = await fetch(entryUrl(newSessionId), {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ checked: [] }),
       });
       if (!res.ok) throw new Error("서버 응답 오류(" + res.status + ")");
-      const location_ = res.headers.get("Location");
-      if (!location_) throw new Error("서버가 저장 위치를 알려주지 않았습니다");
-      const newBlobId = location_.split("/").pop();
 
       const itemsText = Array.from(itemsByIndex.entries())
         .map(([idx, it]) => idx + ":" + it.time + ":" + it.loc + ":" + it.name)
         .join(";");
       const shareUrl = location.origin + location.pathname +
-        "?b=" + encodeURIComponent(newBlobId) +
+        "?b=" + encodeURIComponent(newSessionId) +
         "#d=" + encodeURIComponent(sessionDateStr) + "&items=" + encodeURIComponent(itemsText);
 
       // 관리자도 이후엔 근무자와 똑같은 화면(체크리스트)을 쓰도록 그 주소로 이동한다.

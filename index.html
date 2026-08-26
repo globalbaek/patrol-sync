@@ -295,26 +295,33 @@
     .card-body {
       background: #f8fafc;
       border-radius: 8px;
-      padding: 9px 12px;
+      padding: 10px 12px;
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 6px;
       font-size: 0.85rem;
       border: 1px solid var(--border-light);
     }
     .info-row {
       display: flex;
       gap: 8px;
+      align-items: baseline;
     }
     .info-label {
       color: var(--text-muted);
       width: 58px;
       flex-shrink: 0;
-      font-weight: 600;
+      font-weight: 700;
     }
     .info-value {
       color: var(--text);
       font-weight: 700;
+      word-break: break-all;
+    }
+    .info-value.address-text {
+      color: #0369a1;
+      font-weight: 600;
+      line-height: 1.35;
     }
 
     .btn-complete-toggle {
@@ -371,6 +378,14 @@
       padding: 10px 8px;
       border-bottom: 1px solid #e2e8f0;
       color: var(--text);
+    }
+    .patrol-table td.td-address {
+      text-align: left;
+      color: #0369a1;
+      max-width: 250px;
+      white-space: normal;
+      font-size: 0.8rem;
+      line-height: 1.3;
     }
     .patrol-table tr:nth-child(even) { background: #f8fafc; }
     .patrol-table tr.completed-row { background: #f0fdf4 !important; }
@@ -578,10 +593,10 @@
     <select class="filter-select" id="sel-person" onchange="applyFilters()">
       <option value="ALL">전체 담당자</option>
     </select>
-    <input type="text" class="search-input" id="txt-search" placeholder="대상자/위치 검색..." oninput="applyFilters()">
+    <input type="text" class="search-input" id="txt-search" placeholder="대상자/위치/주소 검색..." oninput="applyFilters()">
     <div class="view-toggle-group">
       <button class="btn-toggle active" id="btn-view-card" onclick="setViewMode('card')">카드</button>
-      <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('table')">표</button>
+      <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('표')">표</button>
     </div>
   </div>
 
@@ -595,7 +610,7 @@
       <div class="empty-desc">
         PC 화면의 <strong>[📱 모바일 순찰 전송]</strong> 창을 띄운 뒤,<br>
         상단의 <strong>[📷 QR스캔]</strong> 버튼을 눌러 모니터를 비추세요.<br><br>
-        스캔 완료 후 <strong>[🔗 실시간공유]</strong>를 누르면 단체방에 링크 하나로 <strong>전체 인원이 실시간 동기화</strong>됩니다.
+        스캔 완료 후 <strong>[🔗 실시간공유]</strong>를 누르면 단체방에 링크 하나로 <strong>주소와 담당자가 실시간 공유</strong>됩니다.
       </div>
       <div style="margin-top:18px;">
         <button class="btn-header primary" style="padding:12px 24px; margin:0 auto; font-size:0.95rem;" onclick="openScannerModal()">
@@ -615,7 +630,8 @@
             <th>이행</th>
             <th>연번</th>
             <th>대상자</th>
-            <th>위치</th>
+            <th>구분</th>
+            <th>위치(주소)</th>
             <th>세션</th>
             <th>시간</th>
             <th>순찰차</th>
@@ -669,9 +685,9 @@
         </button>
       </div>
       <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
-        ✨ <strong>실시간 체크 연동 & 인원 100% 보존:</strong><br>
-        • 링크를 누르면 전체 대상자(<span id="lbl-share-count">0</span>명)가 1명도 빠짐없이 뜹니다.<br>
-        • <strong>팀원들이 체크한 내역이 서로의 폰에 실시간으로 자동 업데이트</strong>됩니다!
+        ✨ <strong>주소 표시 & 실시간 체크 연동:</strong><br>
+        • 링크를 누르면 전체 대상자(<span id="lbl-share-count">0</span>명)의 <strong>주소와 매칭인력</strong>이 정확하게 표시됩니다.<br>
+        • 팀원들이 체크한 내역이 서로의 폰에 실시간으로 자동 업데이트됩니다!
       </p>
       <button class="btn-header" style="width:100%; justify-content:center; padding:10px;" onclick="closeShareModal()">닫기</button>
     </div>
@@ -699,14 +715,12 @@
   <!-- 토스트 알림 -->
   <div class="toast" id="toast-msg">알림 메시지</div>
 
-  <!-- JavaScript 핵심 로직: 실시간 동기화 + 체크 상태 영구 보존 엔진 -->
+  <!-- JavaScript 핵심 로직: 주소 지원, 매칭인력 공백 포매팅, 실시간 동기화 엔진 -->
   <script>
     /* ==========================================================================
        1. Base36 및 MobileSyncCodec JavaScript 구현 (C# MobileSyncCodec 100% 호환)
        ========================================================================== */
     const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-    // 공개 무인증 실시간 JSON 스토리지 엔드포인트
     const CLOUD_SYNC_API = "https://api.restful-api.dev/objects";
 
     function checksum(str) {
@@ -745,8 +759,25 @@
       return display;
     }
 
+    // 계급과 이름 사이에 띄어쓰기 자동 보정 함수 (경위홍길동 -> 경위 홍길동)
+    function formatMatchedPersons(text) {
+      if (!text || text === "-") return "-";
+      const ranks = ["치안총감", "치안정감", "치안감", "경무관", "총경", "경정", "경감", "경위", "경사", "경장", "순경", "행정관", "주무관"];
+      let parts = text.split(/[,/]/).map(p => p.trim());
+      let formatted = parts.map(part => {
+        if (part.includes(" ")) return part; // 이미 띄어쓰기가 있으면 유지
+        for (let r of ranks) {
+          if (part.startsWith(r) && part.length > r.length) {
+            return r + " " + part.substring(r.length);
+          }
+        }
+        return part;
+      });
+      return formatted.join(", ");
+    }
+
     /* ==========================================================================
-       2. UTF-8 안전 Base64 직렬화 (인원 수 손실 0% 보장)
+       2. UTF-8 안전 Base64 직렬화 (주소 포함 & 인원 수 손실 0% 보장)
        ========================================================================== */
     function encodePayloadPack(items, dateStr, sessionId) {
       try {
@@ -763,7 +794,8 @@
             e: it.endHHmm,
             car: it.patrolCar,
             p: it.matchedPersonsText,
-            d: it.isCompleted ? 1 : 0
+            d: it.isCompleted ? 1 : 0,
+            a: it.address || ""
           }))
         };
         const jsonStr = JSON.stringify(payloadObj);
@@ -798,8 +830,9 @@
               startHHmm: x.s !== undefined ? x.s : x.startHHmm,
               endHHmm: x.e !== undefined ? x.e : x.endHHmm,
               patrolCar: x.car !== undefined ? x.car : x.patrolCar,
-              matchedPersonsText: x.p !== undefined ? x.p : x.matchedPersonsText,
-              isCompleted: x.d === 1 || x.isCompleted === true
+              matchedPersonsText: formatMatchedPersons(x.p !== undefined ? x.p : x.matchedPersonsText),
+              isCompleted: x.d === 1 || x.isCompleted === true,
+              address: x.a !== undefined ? x.a : (x.address || "")
             }))
           };
         }
@@ -811,10 +844,10 @@
     }
 
     /* ==========================================================================
-       3. 상태 관리 (State) & 체크 상태 영구 보존 (Merge Engine)
+       3. 상태 관리 (State) & 체크 상태 영구 보존
        ========================================================================== */
-    const STORAGE_KEY_DATA = "VictimProtection_Mobile_Data_v3";
-    const STORAGE_KEY_CHECKS = "VictimProtection_Mobile_Checks_v3";
+    const STORAGE_KEY_DATA = "VictimProtection_Mobile_Data_v4";
+    const STORAGE_KEY_CHECKS = "VictimProtection_Mobile_Checks_v4";
 
     let state = {
       sessionId: "",
@@ -829,7 +862,6 @@
 
     let livePollingTimer = null;
 
-    // 로컬에 저장된 체크 인덱스 Set 불러오기 (날짜별 키 관리)
     function getLocalCompletedSet(dateStr) {
       try {
         const saved = localStorage.getItem(`${STORAGE_KEY_CHECKS}_${dateStr || "curr"}`);
@@ -848,17 +880,14 @@
     }
 
     async function loadState() {
-      // 1. URL 쿼리스트링(?sid=...) 확인
       const urlParams = new URLSearchParams(window.location.search);
       const querySid = urlParams.get("sid");
       if (querySid) {
         state.sessionId = querySid;
       }
 
-      // 2. URL Hash(공유 링크 #data=...) 확인
       const hasHash = checkUrlHashData();
 
-      // 3. 로컬 스토리지 확인 (Hash가 없었을 때)
       if (!hasHash) {
         try {
           const saved = localStorage.getItem(STORAGE_KEY_DATA);
@@ -870,9 +899,9 @@
               state.workDateShort = parsed.workDateShort || "";
               state.items = parsed.items;
 
-              // 체크 상태 보존 병합
               const localChecks = getLocalCompletedSet(state.workDateShort);
               state.items.forEach(it => {
+                it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
                 if (localChecks.has(it.index)) it.isCompleted = true;
               });
 
@@ -884,7 +913,6 @@
         }
       }
 
-      // 4. 세션 ID가 있으면 클라우드 실시간 동기화 시작
       if (state.sessionId) {
         setSyncStatus("실시간 동기화 연결 중...");
         await fetchCloudChecks();
@@ -901,7 +929,6 @@
           items: state.items
         }));
 
-        // 체크 상태 별도 영구 저장 (재진입 시 절대 날아가지 않도록 보존)
         const completedIndices = new Set(state.items.filter(x => x.isCompleted).map(x => x.index));
         saveLocalCompletedSet(state.workDateShort, completedIndices);
       } catch (e) {
@@ -909,7 +936,6 @@
       }
     }
 
-    // URL Hash에서 전체 순찰 대상자 100% 복원 + 기존 체크 내역 유지 병합(Merge)
     function checkUrlHashData() {
       const hash = window.location.hash;
       if (!hash || hash.length < 5) return false;
@@ -924,11 +950,11 @@
             state.workDateShort = unpacked.dateStr || "260826";
             if (unpacked.sessionId) state.sessionId = unpacked.sessionId;
 
-            // 핵심: 기존에 내가 체크했던 내역을 불러와서 병합(절대 초기화 방지)
             const localChecks = getLocalCompletedSet(state.workDateShort);
 
             state.items = unpacked.items;
             state.items.forEach(it => {
+              it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
               if (localChecks.has(it.index)) {
                 it.isCompleted = true;
               }
@@ -957,7 +983,6 @@
       }
     }
 
-    // 클라우드 세션 생성 (스캔 시 또는 공유 버튼 터치 시)
     async function ensureCloudSession() {
       if (state.sessionId) return state.sessionId;
 
@@ -993,7 +1018,6 @@
       return null;
     }
 
-    // 체크 상태를 클라우드에 전송 (0.2초 이내 전파)
     async function pushCloudChecks() {
       if (!state.sessionId) {
         await ensureCloudSession();
@@ -1021,7 +1045,6 @@
       }
     }
 
-    // 다른 팀원들의 체크 현황을 클라우드에서 실시간 수신
     async function fetchCloudChecks() {
       if (!state.sessionId) return;
 
@@ -1054,14 +1077,13 @@
       }
     }
 
-    // 3초 주기 스마트 백그라운드 폴링
     function startLivePolling() {
       if (livePollingTimer) clearInterval(livePollingTimer);
       livePollingTimer = setInterval(fetchCloudChecks, 3000);
     }
 
     /* ==========================================================================
-       5. UI 렌더링 & 스마트 필터
+       5. UI 렌더링 & 스마트 필터 (주소 및 계급 띄어쓰기 반영)
        ========================================================================== */
     function formatTime(t) {
       if (!t || t.length < 4) return t || "-";
@@ -1144,7 +1166,8 @@
           const matchName = (it.victimName || "").toLowerCase().includes(searchQuery);
           const matchCar = (it.patrolCar || "").toLowerCase().includes(searchQuery);
           const matchSeq = (it.seqLabel || "").toLowerCase().includes(searchQuery);
-          if (!matchName && !matchCar && !matchSeq) return false;
+          const matchAddr = (it.address || "").toLowerCase().includes(searchQuery);
+          if (!matchName && !matchCar && !matchSeq && !matchAddr) return false;
         }
         return true;
       });
@@ -1170,6 +1193,7 @@
 
         const locName = locationName(it.locationChar);
         const sessionName = it.sessionChar === "D" ? "주간" : "야간";
+        const formattedPersons = formatMatchedPersons(it.matchedPersonsText);
 
         card.innerHTML = `
           <div class="card-header">
@@ -1185,12 +1209,16 @@
           </div>
           <div class="card-body">
             <div class="info-row">
+              <span class="info-label">위치주소</span>
+              <span class="info-value address-text">${it.address || "-"}</span>
+            </div>
+            <div class="info-row">
               <span class="info-label">담당차량</span>
               <span class="info-value">${it.patrolCar || "-"}</span>
             </div>
             <div class="info-row">
               <span class="info-label">매칭인력</span>
-              <span class="info-value">${it.matchedPersonsText || "-"}</span>
+              <span class="info-value">${formattedPersons}</span>
             </div>
           </div>
           <button class="btn-complete-toggle ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
@@ -1212,6 +1240,7 @@
 
         const locName = locationName(it.locationChar);
         const sessionName = it.sessionChar === "D" ? "주간" : "야간";
+        const formattedPersons = formatMatchedPersons(it.matchedPersonsText);
 
         tr.innerHTML = `
           <td>
@@ -1222,10 +1251,11 @@
           <td><strong>${it.seqLabel}</strong></td>
           <td style="font-weight:700;">${it.victimName}</td>
           <td><span class="location-badge ${locName}">${locName}</span></td>
+          <td class="td-address">${it.address || "-"}</td>
           <td><span class="session-tag ${sessionName}">${sessionName}</span></td>
           <td>${formatTime(it.startHHmm)}~${formatTime(it.endHHmm)}</td>
           <td>${it.patrolCar || "-"}</td>
-          <td>${it.matchedPersonsText || "-"}</td>
+          <td>${formattedPersons}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -1245,7 +1275,6 @@
       applyFilters();
       showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
 
-      // 실시간 클라우드 동기화 즉시 전송
       await pushCloudChecks();
     }
 
@@ -1270,7 +1299,7 @@
       if (mode === "card") {
         container.classList.add("force-card");
         btnCard.classList.add("active");
-      } else if (mode === "table") {
+      } else {
         container.classList.add("force-table");
         btnTable.classList.add("active");
       }
@@ -1351,7 +1380,6 @@
       if (video.readyState === video.HAVE_ENOUGH_DATA && timestamp - lastScanTime > 80) {
         lastScanTime = timestamp;
 
-        // 1. 네이티브 BarcodeDetector 우선 시도
         if (barcodeDetector) {
           try {
             const barcodes = await barcodeDetector.detect(video);
@@ -1361,7 +1389,6 @@
           } catch (e) {}
         }
 
-        // 2. jsQR 듀얼 시도
         if (typeof jsQR !== "undefined") {
           scanCanvas.width = video.videoWidth;
           scanCanvas.height = video.videoHeight;
@@ -1421,7 +1448,6 @@
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         showToast("전체 순찰 대상 동기화 완료!");
 
-        // 백그라운드 클라우드 세션 생성
         ensureCloudSession();
       }
     }
@@ -1460,13 +1486,13 @@
             startHHmm: f[5],
             endHHmm: f[6],
             patrolCar: f[7],
-            matchedPersonsText: f[8],
-            isCompleted: f[9] === "1"
+            matchedPersonsText: formatMatchedPersons(f[8]),
+            isCompleted: f[9] === "1",
+            address: f.length >= 11 ? f.slice(10).join(":") : ""
           });
         }
       });
 
-      // 기존 로컬 체크 내역과 병합
       const localChecks = getLocalCompletedSet(state.workDateShort);
       items.forEach(it => {
         if (localChecks.has(it.index)) it.isCompleted = true;
@@ -1513,7 +1539,6 @@
     async function copyShareUrl() {
       const shareUrl = await buildLiveShareUrl();
 
-      // 모바일 네이티브 공유 시도 (카카오톡, 문자 등)
       if (navigator.share) {
         try {
           await navigator.share({
@@ -1526,7 +1551,6 @@
         } catch (e) {}
       }
 
-      // 클립보드 복사
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(shareUrl).then(() => {
           showToast("실시간 공유 링크가 복사되었습니다! 카톡에 붙여넣으세요.");

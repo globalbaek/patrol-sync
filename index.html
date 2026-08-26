@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>순찰이행 QR 동기화</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif;
+    background: #f4f5f7; color: #222;
+  }
+  header {
+    background: #1f2d3d; color: white; padding: 14px 16px;
+    font-size: 18px; font-weight: bold;
+  }
+  .section {
+    background: white; margin: 10px; padding: 14px; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+  .section h2 {
+    font-size: 15px; margin: 0 0 8px 0; color: #444;
+  }
+  #video-wrap {
+    position: relative; width: 100%; max-width: 480px; margin: 0 auto;
+    background: black; border-radius: 8px; overflow: hidden;
+  }
+  video { width: 100%; display: block; }
+  #scan-status {
+    text-align: center; margin-top: 8px; font-size: 14px; color: #555;
+  }
+  #scan-status.ok { color: #1a7f37; font-weight: bold; }
+  .item-row {
+    display: flex; align-items: center; padding: 10px 6px;
+    border-bottom: 1px solid #eee; font-size: 16px;
+  }
+  .item-row:last-child { border-bottom: none; }
+  .item-row input[type=checkbox] { width: 22px; height: 22px; margin-right: 12px; }
+  .item-label { flex: 1; }
+  .item-idx { color: #999; font-size: 12px; margin-right: 6px; }
+  #empty-msg { color: #888; padding: 8px 4px; font-size: 14px; }
+  button {
+    font-size: 16px; padding: 10px 16px; border-radius: 8px; border: none;
+    background: #2563eb; color: white; cursor: pointer;
+  }
+  button:disabled { background: #b7c1cf; }
+  button.secondary { background: #6b7280; }
+  #code-output {
+    font-family: Consolas, monospace; font-size: 20px; letter-spacing: 1px;
+    background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 8px;
+    padding: 12px; text-align: center; margin-top: 10px; word-break: break-all;
+    display: none;
+  }
+  #copy-btn { margin-top: 8px; width: 100%; }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-row button { flex: 1; }
+  #part-status { font-size: 13px; color: #666; text-align: center; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<header>순찰이행 QR 동기화</header>
+
+<div class="section">
+  <h2>① QR 스캔</h2>
+  <div id="video-wrap">
+    <video id="video" playsinline autoplay muted></video>
+  </div>
+  <div id="scan-status">카메라를 QR에 비춰주세요</div>
+  <div id="part-status"></div>
+</div>
+
+<div class="section">
+  <h2>② 순찰 완료한 항목 체크</h2>
+  <div id="item-list">
+    <div id="empty-msg">아직 스캔된 항목이 없습니다.</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>③ 완료코드 만들기</h2>
+  <div class="btn-row">
+    <button id="gen-btn" disabled>완료코드 생성</button>
+    <button id="reset-btn" class="secondary">전체 초기화</button>
+  </div>
+  <div id="code-output"></div>
+  <button id="copy-btn" style="display:none;">코드 복사하기</button>
+</div>
+
+<script>
+// ===== 이 파일의 프레임/완료코드 형식은 C# 쪽 MobileSyncCodec.cs와 반드시
+// 1:1로 일치해야 한다. 한쪽만 고치면 동기화가 깨진다. =====
+
+const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+function toBase36(value, width) {
+  let v = value, s = "";
+  if (v === 0) s = "0";
+  while (v > 0) { s = BASE36[v % 36] + s; v = Math.floor(v / 36); }
+  while (s.length < width) s = "0" + s;
+  return s;
+}
+
+function base36Value(ch) {
+  const idx = BASE36.indexOf(ch.toUpperCase());
+  if (idx < 0) throw new Error("잘못된 문자: " + ch);
+  return idx;
+}
+
+function checksum(str) {
+  let sum = 0;
+  for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
+  return sum % 36;
+}
+
+// 프레임 텍스트("P1/8|260826|0:0730:H:홍;2:0800:W:김") 파싱
+function parseFrame(text) {
+  if (!text.startsWith("P")) throw new Error("QR 형식이 아닙니다");
+  const bar1 = text.indexOf("|");
+  const bar2 = text.indexOf("|", bar1 + 1);
+  if (bar1 < 0 || bar2 < 0) throw new Error("QR 형식이 올바르지 않습니다");
+  const partSpec = text.substring(1, bar1).split("/");
+  const partIndex = parseInt(partSpec[0], 10);
+  const partCount = parseInt(partSpec[1], 10);
+  const dateStr = text.substring(bar1 + 1, bar2);
+  const body = text.substring(bar2 + 1);
+  const items = [];
+  if (body.length > 0) {
+    for (const chunk of body.split(";")) {
+      const parts = chunk.split(":");
+      if (parts.length !== 4) continue;
+      items.push({
+        index: parseInt(parts[0], 10),
+        time: parts[1],
+        loc: parts[2],
+        name: parts[3],
+      });
+    }
+  }
+  return { partIndex, partCount, dateStr, items };
+}
+
+function locLabel(c) {
+  if (c === "H") return "거주지";
+  if (c === "W") return "직장";
+  if (c === "S") return "학교";
+  return c;
+}
+
+// ===== 상태 =====
+let sessionDateStr = null;       // 이번에 스캔 중인 세션의 날짜(yyMMdd) — 첫 프레임에서 확정
+let receivedParts = new Set();   // 스캔 완료한 파트 번호(1부터)
+let totalParts = null;
+let itemsByIndex = new Map();    // index -> {time, loc, name}
+let checkedIndices = new Set();
+
+const videoEl = document.getElementById("video");
+const statusEl = document.getElementById("scan-status");
+const partStatusEl = document.getElementById("part-status");
+const itemListEl = document.getElementById("item-list");
+const genBtn = document.getElementById("gen-btn");
+const resetBtn = document.getElementById("reset-btn");
+const codeOutputEl = document.getElementById("code-output");
+const copyBtn = document.getElementById("copy-btn");
+
+function renderItemList() {
+  const indices = Array.from(itemsByIndex.keys()).sort((a, b) => a - b);
+  if (indices.length === 0) {
+    itemListEl.innerHTML = '<div id="empty-msg">아직 스캔된 항목이 없습니다.</div>';
+    genBtn.disabled = true;
+    return;
+  }
+  itemListEl.innerHTML = "";
+  for (const idx of indices) {
+    const it = itemsByIndex.get(idx);
+    const row = document.createElement("label");
+    row.className = "item-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = checkedIndices.has(idx);
+    cb.addEventListener("change", () => {
+      if (cb.checked) checkedIndices.add(idx); else checkedIndices.delete(idx);
+      genBtn.disabled = checkedIndices.size === 0;
+      codeOutputEl.style.display = "none";
+      copyBtn.style.display = "none";
+    });
+    const label = document.createElement("span");
+    label.className = "item-label";
+    label.innerHTML = '<span class="item-idx">#' + idx + '</span>' +
+      it.name + "* &nbsp;" + it.time.substring(0,2) + ":" + it.time.substring(2,4) +
+      " &nbsp;(" + locLabel(it.loc) + ")";
+    row.appendChild(cb);
+    row.appendChild(label);
+    itemListEl.appendChild(row);
+  }
+  genBtn.disabled = checkedIndices.size === 0;
+}
+
+function handleScannedFrame(text) {
+  let parsed;
+  try {
+    parsed = parseFrame(text);
+  } catch (e) {
+    return; // 우리 형식이 아닌 QR은 조용히 무시(다른 QR을 잘못 비췄을 수 있음)
+  }
+
+  if (sessionDateStr === null) {
+    sessionDateStr = parsed.dateStr;
+  } else if (sessionDateStr !== parsed.dateStr) {
+    statusEl.textContent = "다른 날짜의 QR입니다. 전체 초기화 후 오늘 화면부터 다시 스캔해주세요.";
+    statusEl.className = "";
+    return;
+  }
+
+  totalParts = parsed.partCount;
+  const isNewPart = !receivedParts.has(parsed.partIndex);
+  receivedParts.add(parsed.partIndex);
+
+  for (const it of parsed.items) {
+    itemsByIndex.set(it.index, { time: it.time, loc: it.loc, name: it.name });
+  }
+
+  partStatusEl.textContent = receivedParts.size + " / " + totalParts + " 장 스캔 완료";
+  if (isNewPart) {
+    statusEl.textContent = parsed.partIndex + "번째 장 스캔됨";
+    statusEl.className = "ok";
+    if (navigator.vibrate) navigator.vibrate(80);
+    setTimeout(() => { statusEl.className = ""; statusEl.textContent = "카메라를 QR에 비춰주세요"; }, 1200);
+  }
+
+  renderItemList();
+}
+
+// ===== 완료코드 생성 (C# BuildCompletionCode와 1:1 대응) =====
+function buildCompletionCode(indices, dateStr) {
+  const sorted = Array.from(indices).sort((a, b) => a - b);
+  if (sorted.length > 99) throw new Error("한 번에 99개까지만 가능합니다");
+  let body = dateStr + String(sorted.length).padStart(2, "0");
+  for (const idx of sorted) {
+    if (idx < 0 || idx > 1295) throw new Error("인덱스 범위 초과: " + idx);
+    body += toBase36(idx, 2);
+  }
+  const cs = checksum(body);
+  body += BASE36[cs];
+  let display = "";
+  for (let i = 0; i < body.length; i++) {
+    if (i > 0 && i % 4 === 0) display += "-";
+    display += body[i];
+  }
+  return display;
+}
+
+genBtn.addEventListener("click", () => {
+  try {
+    const code = buildCompletionCode(checkedIndices, sessionDateStr);
+    codeOutputEl.textContent = code;
+    codeOutputEl.style.display = "block";
+    copyBtn.style.display = "block";
+  } catch (e) {
+    alert("코드 생성 실패: " + e.message);
+  }
+});
+
+copyBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(codeOutputEl.textContent);
+    copyBtn.textContent = "복사됨!";
+    setTimeout(() => { copyBtn.textContent = "코드 복사하기"; }, 1500);
+  } catch (e) {
+    alert("복사에 실패했습니다. 코드를 길게 눌러 직접 복사해주세요.");
+  }
+});
+
+resetBtn.addEventListener("click", () => {
+  if (!confirm("스캔한 내용과 체크 상태를 모두 지울까요?")) return;
+  sessionDateStr = null;
+  receivedParts = new Set();
+  totalParts = null;
+  itemsByIndex = new Map();
+  checkedIndices = new Set();
+  partStatusEl.textContent = "";
+  codeOutputEl.style.display = "none";
+  copyBtn.style.display = "none";
+  renderItemList();
+});
+
+// ===== 카메라 + jsQR 스캔 루프 =====
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
+let scanning = false;
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
+    });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+    scanning = true;
+    requestAnimationFrame(scanLoop);
+  } catch (e) {
+    statusEl.textContent = "카메라를 사용할 수 없습니다: " + e.message +
+      " (브라우저의 카메라 권한을 허용해주세요)";
+  }
+}
+
+let lastScanTime = 0;
+function scanLoop(timestamp) {
+  if (!scanning) return;
+  if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
+    // 매 프레임마다 디코드하면 부하가 크므로 100ms 간격으로 제한
+    if (timestamp - lastScanTime > 100) {
+      lastScanTime = timestamp;
+      canvas.width = videoEl.videoWidth;
+      canvas.height = videoEl.videoHeight;
+      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code && code.data) {
+        handleScannedFrame(code.data);
+      }
+    }
+  }
+  requestAnimationFrame(scanLoop);
+}
+
+startCamera();
+</script>
+
+</body>
+</html>

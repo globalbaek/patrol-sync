@@ -716,10 +716,10 @@
   <!-- 토스트 알림 -->
   <div class="toast" id="toast-msg">알림 메시지</div>
 
-  <!-- JavaScript 핵심 로직: 체크 시각 지원, 드롭박스 즉시 반응, 실시간 동기화 -->
+  <!-- JavaScript 핵심 로직: 날짜 격리 저장소, 체크 잠금 동기화, 실시간 엔진 -->
   <script>
     /* ==========================================================================
-       1. Base36 및 MobileSyncCodec JavaScript 구현 (C# MobileSyncCodec 100% 호환)
+       1. Base36 및 포매터
        ========================================================================== */
     const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const CLOUD_SYNC_API = "https://api.restful-api.dev/objects";
@@ -745,7 +745,7 @@
     function buildCompletionCode(completedIndices, workDateStr) {
       const sorted = [...completedIndices].sort((a, b) => a - b);
       let countStr = String(sorted.length).padStart(2, "0");
-      let body = workDateStr + countStr;
+      let body = (workDateStr || "260826") + countStr;
       for (let idx of sorted) {
         body += toBase36(idx, 2);
       }
@@ -777,13 +777,13 @@
     }
 
     /* ==========================================================================
-       2. UTF-8 안전 Base64 직렬화 (체크 시각 & 주소 포함)
+       2. UTF-8 안전 Base64 직렬화 (날짜, 세션, 주소, 체크시각)
        ========================================================================== */
     function encodePayloadPack(items, dateStr, sessionId) {
       try {
         const payloadObj = {
-          d: dateStr || "260826",
-          s: sessionId || "",
+          d: dateStr || state.workDateShort || "260826",
+          s: sessionId || state.sessionId || "",
           items: items.map(it => ({
             i: it.index,
             l: it.seqLabel,
@@ -820,8 +820,8 @@
 
         if (obj && Array.isArray(obj.items)) {
           return {
-            dateStr: obj.d,
-            sessionId: obj.s,
+            dateStr: obj.d || "260826",
+            sessionId: obj.s || "",
             items: obj.items.map(x => ({
               index: x.i !== undefined ? x.i : x.index,
               seqLabel: x.l !== undefined ? x.l : x.seqLabel,
@@ -846,10 +846,11 @@
     }
 
     /* ==========================================================================
-       3. 상태 관리 (State) & 체크 시각 영구 보존
+       3. 상태 관리 (State) & 날짜별 완전 독립 스토리지
        ========================================================================== */
-    const STORAGE_KEY_DATA = "VictimProtection_Mobile_Data_v5";
-    const STORAGE_KEY_CHECKS = "VictimProtection_Mobile_Checks_v5";
+    const STORAGE_KEY_CURRENT_DATE = "Bumpi_Current_WorkDate";
+    const STORAGE_PREFIX_DATA = "Bumpi_Data_";
+    const STORAGE_PREFIX_CHECKS = "Bumpi_Checks_";
 
     let state = {
       sessionId: "",
@@ -863,11 +864,19 @@
     };
 
     let livePollingTimer = null;
+    let lastLocalEditTimestamp = 0; // 로컬 체크 직후 클라우드 덮어쓰기 방지 락
 
-    // 로컬에 저장된 { [index]: "21:45" } 맵 불러오기
+    function getStorageKeyData(dateStr) {
+      return STORAGE_PREFIX_DATA + (dateStr || state.workDateShort || "default");
+    }
+
+    function getStorageKeyChecks(dateStr) {
+      return STORAGE_PREFIX_CHECKS + (dateStr || state.workDateShort || "default");
+    }
+
     function getLocalCompletedTimesMap(dateStr) {
       try {
-        const saved = localStorage.getItem(`${STORAGE_KEY_CHECKS}_${dateStr || "curr"}`);
+        const saved = localStorage.getItem(getStorageKeyChecks(dateStr));
         if (saved) {
           const map = JSON.parse(saved);
           if (map && typeof map === "object") return map;
@@ -878,28 +887,30 @@
 
     function saveLocalCompletedTimesMap(dateStr, map) {
       try {
-        localStorage.setItem(`${STORAGE_KEY_CHECKS}_${dateStr || "curr"}`, JSON.stringify(map));
+        localStorage.setItem(getStorageKeyChecks(dateStr), JSON.stringify(map));
       } catch (e) {}
     }
 
     async function loadState() {
+      // 1. URL 쿼리스트링 파싱 (?sid=...)
       const urlParams = new URLSearchParams(window.location.search);
       const querySid = urlParams.get("sid");
-      if (querySid) {
-        state.sessionId = querySid;
-      }
 
-      const hasHash = checkUrlHashData();
+      // 2. URL 해시(#data=...) 확인
+      const hasHash = checkUrlHashData(querySid);
 
+      // 3. 해시가 없는 경우 (새로고침 / 재진입 시 최근 저장된 날짜의 데이터 복원)
       if (!hasHash) {
         try {
-          const saved = localStorage.getItem(STORAGE_KEY_DATA);
-          if (saved) {
-            const parsed = JSON.parse(saved);
+          const activeDate = localStorage.getItem(STORAGE_KEY_CURRENT_DATE);
+          const savedData = activeDate ? localStorage.getItem(getStorageKeyData(activeDate)) : null;
+
+          if (savedData) {
+            const parsed = JSON.parse(savedData);
             if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-              state.sessionId = parsed.sessionId || state.sessionId || "";
+              state.workDateShort = parsed.workDateShort || activeDate || "";
               state.workDate = parsed.workDate || "";
-              state.workDateShort = parsed.workDateShort || "";
+              state.sessionId = querySid || parsed.sessionId || "";
               state.items = parsed.items;
 
               const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
@@ -928,7 +939,10 @@
 
     function saveState() {
       try {
-        localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify({
+        if (!state.workDateShort) return;
+
+        localStorage.setItem(STORAGE_KEY_CURRENT_DATE, state.workDateShort);
+        localStorage.setItem(getStorageKeyData(state.workDateShort), JSON.stringify({
           sessionId: state.sessionId,
           workDate: state.workDate,
           workDateShort: state.workDateShort,
@@ -947,7 +961,7 @@
       }
     }
 
-    function checkUrlHashData() {
+    function checkUrlHashData(querySid) {
       const hash = window.location.hash;
       if (!hash || hash.length < 5) return false;
 
@@ -958,23 +972,30 @@
           const b64Data = cleanHash.substring(5);
           const unpacked = decodePayloadPack(b64Data);
           if (unpacked && Array.isArray(unpacked.items) && unpacked.items.length > 0) {
-            state.workDateShort = unpacked.dateStr || "260826";
-            if (unpacked.sessionId) state.sessionId = unpacked.sessionId;
+            const newDateShort = unpacked.dateStr || "260826";
+            
+            // 날짜가 바뀐 경우 세션 ID도 새 날짜의 것으로 갱신
+            state.workDateShort = newDateShort;
+            state.workDate = "20" + newDateShort.substring(0,2) + "-" + newDateShort.substring(2,4) + "-" + newDateShort.substring(4,6);
+            state.sessionId = querySid || unpacked.sessionId || "";
 
             const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
 
             state.items = unpacked.items;
             state.items.forEach(it => {
               it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
+              // 로컬에 체크 기록이 있으면 유지, 없으면 URL의 체크 상태 반영
               if (localCheckTimes[it.index] !== undefined) {
                 it.isCompleted = true;
                 it.completedTime = localCheckTimes[it.index];
+              } else if (it.isCompleted && !it.completedTime) {
+                it.completedTime = "완료";
               }
             });
 
             saveState();
             renderUI();
-            showToast(`전체 순찰 대상 ${unpacked.items.length}명 로드 완료!`);
+            showToast(`[${state.workDate}] 순찰 대상 ${unpacked.items.length}명 로드 완료!`);
             return true;
           }
         }
@@ -985,7 +1006,7 @@
     }
 
     /* ==========================================================================
-       4. 실시간 클라우드 동기화 엔진 (체크 시각 포함)
+       4. 실시간 클라우드 동기화 엔진 (체크 잠금 & 덮어쓰기 방어)
        ========================================================================== */
     function setSyncStatus(text, isOk = true) {
       const el = document.getElementById("lbl-sync-status");
@@ -999,7 +1020,7 @@
       if (state.sessionId) return state.sessionId;
 
       try {
-        setSyncStatus("클라우드 세션 생성 중...");
+        setSyncStatus("클라우드 세션 연결 중...");
         const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
         const completedTimes = {};
         state.items.forEach(x => {
@@ -1049,7 +1070,7 @@
           if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
         });
 
-        await fetch(`${CLOUD_SYNC_API}/${state.sessionId}`, {
+        const res = await fetch(`${CLOUD_SYNC_API}/${state.sessionId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1062,6 +1083,14 @@
             }
           })
         });
+
+        if (res.status === 404) {
+          // 세션 만료 시 즉시 새 세션 발급
+          state.sessionId = "";
+          await ensureCloudSession();
+          return;
+        }
+
         setSyncStatus("동기화 완료 (" + new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit', second:'2-digit'}) + ")");
       } catch (e) {
         console.warn("Cloud push failed:", e);
@@ -1072,21 +1101,32 @@
     async function fetchCloudChecks() {
       if (!state.sessionId) return;
 
+      // 사용자가 최근 4초 이내에 로컬에서 체크를 수정한 경우 클라우드 덮어쓰기 일시 중지 (Race Condition 방어)
+      if (Date.now() - lastLocalEditTimestamp < 4000) {
+        return;
+      }
+
       try {
         const res = await fetch(`${CLOUD_SYNC_API}/${state.sessionId}`);
         if (!res.ok) return;
         const json = await res.json();
 
         if (json && json.data && Array.isArray(json.data.completed)) {
+          // 만약 원격 데이터의 날짜가 현재 날짜와 다르면 무시
+          if (json.data.date && json.data.date !== state.workDateShort) {
+            return;
+          }
+
           const remoteCompletedSet = new Set(json.data.completed);
           const remoteTimes = json.data.completedTimes || {};
           let hasChange = false;
 
           state.items.forEach(it => {
-            const shouldBeDone = remoteCompletedSet.has(it.index);
+            const remoteDone = remoteCompletedSet.has(it.index);
             const remoteTime = remoteTimes[it.index] || "";
-            if (it.isCompleted !== shouldBeDone || (shouldBeDone && it.completedTime !== remoteTime)) {
-              it.isCompleted = shouldBeDone;
+
+            if (it.isCompleted !== remoteDone || (remoteDone && it.completedTime !== remoteTime)) {
+              it.isCompleted = remoteDone;
               it.completedTime = remoteTime;
               hasChange = true;
             }
@@ -1095,7 +1135,7 @@
           if (hasChange) {
             saveState();
             applyFilters();
-            showToast("팀원의 순찰 이행사항이 실시간 업데이트되었습니다!");
+            showToast("팀원의 순찰 이행사항이 실시간 동기화되었습니다!");
           }
           setSyncStatus("실시간 동기화 중");
         }
@@ -1138,7 +1178,7 @@
         return;
       }
 
-      dateLbl.textContent = state.workDate ? state.workDate : "20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6);
+      dateLbl.textContent = state.workDate ? state.workDate : ("20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6));
       emptyState.style.display = "none";
 
       populateFilterOptions();
@@ -1325,6 +1365,8 @@
       const item = state.items.find(x => x.index === index);
       if (!item) return;
 
+      lastLocalEditTimestamp = Date.now(); // 락 설정
+
       if (item.isCompleted) {
         item.isCompleted = false;
         item.completedTime = "";
@@ -1340,10 +1382,12 @@
         navigator.vibrate(item.isCompleted ? [40, 50, 40] : 30);
       }
 
+      // 로컬 즉시 영구 저장 및 렌더링
       saveState();
       applyFilters();
       showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료 (${item.completedTime})` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
 
+      // 클라우드 즉시 푸시
       await pushCloudChecks();
     }
 
@@ -1382,7 +1426,7 @@
     }
 
     /* ==========================================================================
-       6. 실시간 카메라 QR 스캐너 (jsQR + BarcodeDetector 듀얼 가속)
+       6. 실시간 카메라 QR 스캐너
        ========================================================================== */
     let videoStream = null;
     let scanAnimationId = null;
@@ -1489,6 +1533,7 @@
       const chunk = raw.substring(bar2 + 1);
 
       state.workDateShort = dateStr;
+      state.workDate = "20" + dateStr.substring(0,2) + "-" + dateStr.substring(2,4) + "-" + dateStr.substring(4,6);
       state.totalFrames = totalParts;
       state.isCompressed = isComp;
       state.receivedFrames[partIdx] = chunk;
@@ -1511,11 +1556,13 @@
           }
         }
 
-        parseFullPayload(fullPayload);
+        // 새 스캔 시 이전 세션 ID 초기화 (새로운 클라우드 방 생성)
+        state.sessionId = "";
+        parseFullPayload(fullPayload, dateStr);
 
         closeScannerModal();
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        showToast("전체 순찰 대상 동기화 완료!");
+        showToast(`[${state.workDate}] 순찰 대상 동기화 완료!`);
 
         ensureCloudSession();
       }
@@ -1540,7 +1587,7 @@
       return base64Str;
     }
 
-    function parseFullPayload(payloadText) {
+    function parseFullPayload(payloadText, dateStr) {
       const rows = payloadText.split("~");
       const items = [];
       rows.forEach(r => {
@@ -1563,7 +1610,7 @@
         }
       });
 
-      const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
+      const localCheckTimes = getLocalCompletedTimesMap(dateStr || state.workDateShort);
       items.forEach(it => {
         if (localCheckTimes[it.index] !== undefined) {
           it.isCompleted = true;
@@ -1615,8 +1662,8 @@
       if (navigator.share) {
         try {
           await navigator.share({
-            title: "🛡️ [범피 모바일 매니저] 실시간 순찰 명단",
-            text: `[${state.workDate || state.workDateShort}] 범피 모바일 순찰 대상자(${state.items.length}명) 명단입니다:`,
+            title: `🛡️ [범피 매니저] ${state.workDate} 순찰 명단`,
+            text: `[${state.workDate}] 범피 모바일 순찰 대상자(${state.items.length}명) 명단입니다:`,
             url: shareUrl
           });
           closeShareModal();
@@ -1630,7 +1677,7 @@
           closeShareModal();
         });
       } else {
-        showToast("링크가 생성되었습니다.");
+        showToast("링크가 복사되었습니다.");
       }
     }
 

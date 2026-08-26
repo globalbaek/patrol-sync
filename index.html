@@ -1,450 +1,1165 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>순찰이행 체크 공유</title>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0;
-    font-family: -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif;
-    background: #f4f5f7; color: #222;
-  }
-  header {
-    background: #1f2d3d; color: white; padding: 14px 16px;
-    font-size: 18px; font-weight: bold;
-  }
-  .section {
-    background: white; margin: 10px; padding: 14px; border-radius: 10px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-  }
-  .section h2 { font-size: 15px; margin: 0 0 8px 0; color: #444; }
-  #video-wrap {
-    position: relative; width: 100%; max-width: 480px; margin: 0 auto;
-    background: black; border-radius: 8px; overflow: hidden;
-  }
-  video { width: 100%; display: block; }
-  #scan-status { text-align: center; margin-top: 8px; font-size: 14px; color: #555; }
-  #scan-status.ok { color: #1a7f37; font-weight: bold; }
-  #part-status { font-size: 13px; color: #666; text-align: center; margin-top: 4px; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1e3a8a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>순찰이행 체크시스템 (모바일)</title>
 
-  /* ---- 대상자 카드: 세로(기본)에서는 필드가 자연스럽게 줄바꿈되고,
-         가로모드에서는 한 줄(표처럼)로 붙는다 ---- */
-  .item-card {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 3px 12px;
-    padding: 10px 6px; border-bottom: 1px solid #eee; font-size: 14px;
-  }
-  .item-card:last-child { border-bottom: none; }
-  .item-card.checked { background: #f0fdf4; }
-  .item-card input[type=checkbox] { width: 22px; height: 22px; flex: 0 0 auto; }
-  .item-card .field { white-space: nowrap; }
-  .item-card .field.name { font-weight: bold; font-size: 15px; }
-  .item-card .field.idx { color: #999; font-size: 12px; }
-  .item-card .field.matched { color: #444; }
-  @media (orientation: landscape) {
-    .item-card { flex-wrap: nowrap; overflow-x: auto; }
-    .item-card .field { flex: 0 0 auto; }
-  }
+  <!-- 경량 순수 JS QR 디코더 (CDN + 로컬 호환) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 
-  #empty-msg { color: #888; padding: 8px 4px; font-size: 14px; }
-  button {
-    font-size: 16px; padding: 12px 16px; border-radius: 8px; border: none;
-    background: #2563eb; color: white; cursor: pointer; width: 100%;
-  }
-  button:disabled { background: #b7c1cf; }
-  button.secondary { background: #6b7280; }
-  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
-  .btn-row button { flex: 1; }
-  #share-url-box {
-    font-family: Consolas, monospace; font-size: 13px;
-    background: #f0f4ff; border: 1px solid #c7d2fe; border-radius: 8px;
-    padding: 10px; margin-top: 10px; word-break: break-all;
-  }
-  #code-output {
-    font-family: Consolas, monospace; font-size: 20px; letter-spacing: 1px;
-    background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;
-    padding: 12px; text-align: center; margin-top: 8px; word-break: break-all;
-  }
-  .hint { font-size: 13px; color: #888; margin-top: 6px; line-height: 1.5; }
-  #toast {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-    background: #1f2d3d; color: white; padding: 10px 18px; border-radius: 20px;
-    font-size: 14px; display: none; z-index: 100;
-  }
-</style>
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-light: #3b82f6;
+      --primary-dark: #0f172a;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #cbd5e1;
+      --border-light: #e2e8f0;
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --warning: #ea580c;
+      --warning-bg: #ffedd5;
+      --danger: #dc2626;
+      --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08);
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+      --shadow-lg: 0 10px 20px -3px rgb(0 0 0 / 0.15);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "맑은 고딕", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.4;
+      padding-bottom: 90px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 상단 헤더 */
+    header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+      color: white;
+      padding: 12px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .app-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge-date {
+      background: rgba(255, 255, 255, 0.22);
+      font-size: 0.8rem;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 700;
+    }
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-header {
+      background: white;
+      color: var(--primary);
+      border: none;
+      padding: 7px 12px;
+      font-size: 0.85rem;
+      font-weight: 800;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.1s ease;
+    }
+    .btn-header.primary {
+      background: #22c55e;
+      color: white;
+    }
+    .btn-header:active { transform: scale(0.96); opacity: 0.9; }
+
+    /* 진행률 바 */
+    .progress-section {
+      background: rgba(0, 0, 0, 0.28);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .progress-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .progress-track {
+      background: rgba(255, 255, 255, 0.2);
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      background: linear-gradient(90deg, #4ade80, #22c55e);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    /* 필터 & 툴바 */
+    .toolbar {
+      padding: 10px 14px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      position: sticky;
+      top: 96px;
+      z-index: 90;
+      box-shadow: var(--shadow-sm);
+    }
+    .filter-select, .search-input {
+      padding: 7px 10px;
+      font-size: 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      color: var(--text);
+      outline: none;
+    }
+    .filter-select { font-weight: 700; flex: 1 1 auto; min-width: 100px; }
+    .search-input { flex: 2 1 140px; }
+    .view-toggle-group {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .btn-toggle {
+      border: none;
+      background: #f8fafc;
+      padding: 7px 11px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .btn-toggle.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* 컨테이너 */
+    .container {
+      padding: 12px 14px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* 비어있는 상태 */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      background: white;
+      border-radius: var(--radius);
+      border: 1px dashed var(--border);
+      margin-top: 10px;
+    }
+    .empty-icon { font-size: 3.2rem; margin-bottom: 12px; }
+    .empty-title { font-size: 1.15rem; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+    .empty-desc { font-size: 0.85rem; line-height: 1.6; }
+
+    /* ================= 세로 모드: 카드 뷰 (Portrait) ================= */
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .patrol-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .patrol-card.completed {
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card-seq-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .seq-tag {
+      background: #e2e8f0;
+      color: #1e293b;
+      font-weight: 800;
+      font-size: 0.85rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .victim-name {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .location-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: #e0f2fe;
+      color: #0369a1;
+    }
+    .location-badge.직장 { background: #fef3c7; color: #b45309; }
+    .location-badge.학교 { background: #f3e8ff; color: #7e22ce; }
+
+    .card-time-session {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .session-tag {
+      font-size: 0.75rem;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 800;
+    }
+    .session-tag.주간 { background: #fed7aa; color: #9a3412; }
+    .session-tag.야간 { background: #c7d2fe; color: #3730a3; }
+
+    .card-body {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 9px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 0.85rem;
+      border: 1px solid var(--border-light);
+    }
+    .info-row {
+      display: flex;
+      gap: 8px;
+    }
+    .info-label {
+      color: var(--text-muted);
+      width: 58px;
+      flex-shrink: 0;
+      font-weight: 600;
+    }
+    .info-value {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .btn-complete-toggle {
+      width: 100%;
+      border: 2px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      font-size: 0.95rem;
+      font-weight: 800;
+      padding: 11px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn-complete-toggle.done {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: white;
+      box-shadow: 0 3px 6px rgba(22, 163, 74, 0.35);
+    }
+    .btn-complete-toggle:active { transform: scale(0.98); }
+
+    /* ================= 가로 모드: 테이블 뷰 (Landscape) ================= */
+    .table-responsive {
+      display: none;
+      width: 100%;
+      background: white;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      box-shadow: var(--shadow-sm);
+    }
+    .patrol-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .patrol-table th {
+      background: #1e293b;
+      color: white;
+      padding: 11px 10px;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .patrol-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      color: var(--text);
+    }
+    .patrol-table tr:nth-child(even) { background: #f8fafc; }
+    .patrol-table tr.completed-row { background: #f0fdf4 !important; }
+    .btn-table-check {
+      border: 1px solid var(--border);
+      background: white;
+      color: #334155;
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .btn-table-check.done {
+      background: #16a34a;
+      color: white;
+      border-color: #16a34a;
+    }
+
+    /* 화면 모드 자동 전환 (Landscape) */
+    @media (orientation: landscape) {
+      .card-list.auto-switch { display: none; }
+      .table-responsive.auto-switch { display: block; }
+    }
+    .force-table .card-list { display: none !important; }
+    .force-table .table-responsive { display: block !important; }
+    .force-card .card-list { display: flex !important; }
+    .force-card .table-responsive { display: none !important; }
+
+    /* ================= 모달 팝업 ================= */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal-box {
+      background: white;
+      border-radius: 16px;
+      max-width: 480px;
+      width: 100%;
+      max-height: 92vh;
+      overflow-y: auto;
+      padding: 20px;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .modal-title {
+      font-size: 1.2rem;
+      font-weight: 800;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .btn-close-modal {
+      border: none;
+      background: #e2e8f0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-weight: 800;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    /* 실시간 카메라 뷰파인더 */
+    #scanner-container {
+      width: 100%;
+      height: 280px;
+      background: #000000;
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+    }
+    #scanner-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .scan-guide-box {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px; height: 200px;
+      border: 3px solid #22c55e;
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+    }
+    .scan-status-pill {
+      position: absolute;
+      bottom: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      font-size: 0.82rem;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    /* 완료코드 박스 */
+    .code-display-box {
+      background: #f8fafc;
+      border: 2px dashed #94a3b8;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .code-value {
+      font-family: "Consolas", monospace;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+      user-select: all;
+    }
+    .btn-copy-code {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 9px 18px;
+      font-size: 0.88rem;
+      font-weight: 800;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    /* 토스트 메시지 */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: rgba(15, 23, 42, 0.95);
+      color: white;
+      padding: 11px 20px;
+      border-radius: 30px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      box-shadow: var(--shadow-lg);
+      z-index: 300;
+      transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      pointer-events: none;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
 </head>
 <body>
 
-<header>순찰이행 체크 공유</header>
+  <!-- 상단 헤더 -->
+  <header>
+    <div class="header-top">
+      <div class="app-title">
+        <span>🛡️ 순찰이행 체크</span>
+        <span class="badge-date" id="lbl-date">-</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn-header" onclick="openScannerModal()">📷 QR 스캔</button>
+        <button class="btn-header primary" onclick="openCodeModal()">✨ 완료코드</button>
+      </div>
+    </div>
+    <div class="progress-section">
+      <div class="progress-labels">
+        <span>순찰 달성률</span>
+        <span id="lbl-progress-text">0 / 0건 (0%)</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-bar"></div>
+      </div>
+    </div>
+  </header>
 
-<!-- ===== 관리자(스캔) 모드: URL에 ?b= 가 없을 때만 보임 ===== -->
-<div id="scan-mode" class="section" style="display:none;">
-  <h2>PC 화면의 QR을 스캔하세요 (여러 장이면 순서 상관없이 전부)</h2>
-  <div id="video-wrap"><video id="video" playsinline autoplay muted></video></div>
-  <div id="scan-status">카메라를 QR에 비춰주세요</div>
-  <div id="part-status"></div>
-  <button id="make-link-btn" style="margin-top:12px; display:none;">공유 링크 만들기</button>
-  <div class="hint">스캔이 끝나면 "공유 링크 만들기"를 눌러주세요. 그러면 이 화면이 공유용 체크리스트로 바뀝니다.</div>
-</div>
-
-<!-- ===== 근무자 모드: URL에 ?b= 가 있을 때만 보임 ===== -->
-<div id="share-mode" style="display:none;">
-  <div class="section" id="share-link-section" style="display:none;">
-    <h2>이 링크를 단체방에 공유하세요</h2>
-    <div id="share-url-box"></div>
-    <button id="copy-link-btn" style="margin-top:8px;">링크 복사하기</button>
-  </div>
-
-  <div class="section">
-    <h2>오늘 순찰대상 — 완료한 항목을 체크하세요</h2>
-    <div id="item-list"><div id="empty-msg">불러오는 중...</div></div>
-    <div class="btn-row">
-      <button id="refresh-btn" class="secondary">새로고침(남이 체크한 내용 반영)</button>
+  <!-- 툴바 및 필터 -->
+  <div class="toolbar">
+    <select class="filter-select" id="sel-session" onchange="applyFilters()">
+      <option value="ALL">전체 세션</option>
+      <option value="D">주간 근무</option>
+      <option value="N">야간 근무</option>
+    </select>
+    <select class="filter-select" id="sel-car" onchange="applyFilters()">
+      <option value="ALL">전체 순찰차</option>
+    </select>
+    <select class="filter-select" id="sel-person" onchange="applyFilters()">
+      <option value="ALL">전체 담당자</option>
+    </select>
+    <input type="text" class="search-input" id="txt-search" placeholder="대상자/위치 검색..." oninput="applyFilters()">
+    <div class="view-toggle-group">
+      <button class="btn-toggle active" id="btn-view-card" onclick="setViewMode('card')">카드</button>
+      <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('table')">표</button>
     </div>
   </div>
 
-  <div class="section">
-    <h2>상황요원 전달용 완료코드</h2>
-    <div class="hint">위 체크 상태를 그대로 요약한 코드입니다. PC 프로그램의 코드 입력창에 그대로 넣으면 됩니다.</div>
-    <div id="code-output">-</div>
+  <!-- 메인 컨테이너 -->
+  <div class="container" id="content-container">
+    
+    <!-- 비어있을 때 안내 -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">📲</div>
+      <div class="empty-title">오늘의 순찰 데이터를 가져오세요</div>
+      <div class="empty-desc">
+        PC 화면의 <strong>[📱 모바일 순찰 전송]</strong> 창을 띄운 뒤,<br>
+        상단의 <strong>[📷 QR 스캔]</strong> 버튼을 눌러 모니터를 비추세요.
+      </div>
+      <div style="margin-top:18px;">
+        <button class="btn-header primary" style="padding:11px 22px; margin:0 auto; font-size:0.95rem;" onclick="openScannerModal()">
+          📷 PC 모니터 QR 스캔 시작
+        </button>
+      </div>
+    </div>
+
+    <!-- 세로 모드: 카드 목록 -->
+    <div class="card-list auto-switch" id="card-list"></div>
+
+    <!-- 가로 모드: 테이블 목록 -->
+    <div class="table-responsive auto-switch" id="table-wrap">
+      <table class="patrol-table">
+        <thead>
+          <tr>
+            <th>이행</th>
+            <th>연번</th>
+            <th>대상자</th>
+            <th>위치</th>
+            <th>세션</th>
+            <th>시간</th>
+            <th>순찰차</th>
+            <th>매칭인력</th>
+          </tr>
+        </thead>
+        <tbody id="table-tbody"></tbody>
+      </table>
+    </div>
+
   </div>
-</div>
 
-<div id="toast"></div>
+  <!-- 모달 1: QR 스캐너 (jsQR + BarcodeDetector 듀얼 가속) -->
+  <div class="modal-backdrop" id="modal-scanner">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>PC 화면 QR 스캔</span>
+        <button class="btn-close-modal" onclick="closeScannerModal()">✕</button>
+      </div>
+      
+      <div id="scanner-container">
+        <video id="scanner-video" autoplay playsinline webkit-playsinline muted></video>
+        <div class="scan-guide-box"></div>
+        <div class="scan-status-pill" id="scan-status">카메라 준비 중...</div>
+      </div>
 
-<script>
-// ===== 프레임/완료코드/행 형식은 C# MobileSyncCodec.cs와 반드시 1:1로 일치해야 한다 =====
-const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const MANTLE_BASE = "https://mantledb.sh/v2";
-const MANTLE_NAMESPACE = "vps-patrol-sync";
+      <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">
+        • PC 모니터의 QR 코드를 녹색 사각형 안에 대고 계세요. (1초 만에 자동 인식)
+      </p>
 
-function toBase36(value, width) {
-  let v = value, s = "";
-  if (v === 0) s = "0";
-  while (v > 0) { s = BASE36[v % 36] + s; v = Math.floor(v / 36); }
-  while (s.length < width) s = "0" + s;
-  return s;
-}
-function checksum(str) {
-  let sum = 0;
-  for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
-  return sum % 36;
-}
-function buildCompletionCode(indices, dateStr) {
-  const sorted = Array.from(indices).sort((a, b) => a - b);
-  let body = dateStr + String(sorted.length).padStart(2, "0");
-  for (const idx of sorted) body += toBase36(idx, 2);
-  const cs = checksum(body);
-  body += BASE36[cs];
-  let display = "";
-  for (let i = 0; i < body.length; i++) {
-    if (i > 0 && i % 4 === 0) display += "-";
-    display += body[i];
-  }
-  return display;
-}
-function randomSessionId() {
-  const bytes = new Uint8Array(10);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes).map(b => BASE36[b % 36]).join("");
-}
-function entryUrl(sessionId) {
-  return MANTLE_BASE + "/" + MANTLE_NAMESPACE + "/" + sessionId;
-}
+      <button class="btn-header" style="width:100%; justify-content:center; padding:11px;" onclick="closeScannerModal()">닫기</button>
+    </div>
+  </div>
 
-// "0:1:홍길동:H:D:0730:0800:순21호:경사김철수,경장이영희:0" 형태의 행 하나를 파싱.
-// (PC의 MobileSyncCodec.RowText / ParseFullPayload와 동일한 필드 순서 10개)
-function parseRow(rowText) {
-  const f = rowText.split(":");
-  if (f.length !== 10) return null;
-  return {
-    index: parseInt(f[0], 10),
-    seq: f[1], name: f[2], loc: f[3], session: f[4],
-    start: f[5], end: f[6], car: f[7], matched: f[8],
-    completed: f[9] === "1",
-  };
-}
-// 전체 텍스트("~"로 행 구분)를 파싱해 index -> item 맵으로.
-function parseFullText(text) {
-  const map = new Map();
-  if (!text) return map;
-  for (const rowText of text.split("~")) {
-    const it = parseRow(rowText);
-    if (it) map.set(it.index, it);
-  }
-  return map;
-}
-function locLabel(c) {
-  if (c === "H") return "거주지";
-  if (c === "W") return "직장";
-  if (c === "S") return "학교";
-  return c;
-}
-function sessionLabel(c) { return c === "D" ? "주간" : "야간"; }
-function showToast(msg) {
-  const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.style.display = "block";
-  setTimeout(() => { t.style.display = "none"; }, 1800);
-}
-function renderItemCard(idx, it, checked, onToggle) {
-  const row = document.createElement("label");
-  row.className = "item-card" + (checked ? " checked" : "");
-  const cb = document.createElement("input");
-  cb.type = "checkbox";
-  cb.checked = checked;
-  cb.addEventListener("change", () => onToggle(idx, cb.checked));
-  row.appendChild(cb);
+  <!-- 모달 2: 완료코드 -->
+  <div class="modal-backdrop" id="modal-code">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>순찰이행 완료코드</span>
+        <button class="btn-close-modal" onclick="closeCodeModal()">✕</button>
+      </div>
+      <div class="code-display-box">
+        <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:8px;">PC 프로그램의 "완료코드 입력" 칸에 입력하세요:</p>
+        <div class="code-value" id="disp-code">------</div>
+        <button class="btn-copy-code" onclick="copyCodeToClipboard()">📋 완료코드 복사</button>
+      </div>
+      <p style="font-size:0.85rem; color:var(--text-muted); text-align:center;">
+        이행완료 처리된 건수: <strong id="lbl-code-count" style="color:var(--success)">0건</strong>
+      </p>
+      <button class="btn-header primary" style="width:100%; justify-content:center; padding:11px;" onclick="closeCodeModal()">확인 완료</button>
+    </div>
+  </div>
 
-  const fields = [
-    ["idx", "#" + it.seq],
-    ["name", it.name],
-    ["field", locLabel(it.loc)],
-    ["field", sessionLabel(it.session)],
-    ["field", it.start.substring(0,2)+":"+it.start.substring(2,4)+"~"+it.end.substring(0,2)+":"+it.end.substring(2,4)],
-    ["field", it.car],
-    ["matched", it.matched === "-" ? "매칭인력 없음" : it.matched],
-  ];
-  for (const [cls, text] of fields) {
-    const span = document.createElement("span");
-    span.className = "field " + cls;
-    span.textContent = text;
-    row.appendChild(span);
-  }
-  return row;
-}
+  <!-- 토스트 알림 -->
+  <div class="toast" id="toast-msg">알림 메시지</div>
 
-// ===== 모드 분기 =====
-const params = new URLSearchParams(location.search);
-const blobId = params.get("b");
+  <!-- JavaScript 핵심 로직 -->
+  <script>
+    /* ==========================================================================
+       1. Base36 및 MobileSyncCodec JavaScript 구현 (C# MobileSyncCodec 100% 호환)
+       ========================================================================== */
+    const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-if (blobId) {
-  runShareMode(blobId);
-} else {
-  runScanMode();
-}
-
-// ---------------- 근무자 모드 ----------------
-function runShareMode(blobId) {
-  document.getElementById("share-mode").style.display = "block";
-
-  // 프래그먼트(#d=260826&items=...)는 서버에 절대 전송되지 않는다 — 명단(개인정보)은
-  // 여기에만 있고 mantledb에는 절대 올라가지 않는다.
-  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
-  const dateStr = hash.get("d");
-  const itemsByIndex = parseFullText(hash.get("items") || "");
-
-  const itemListEl = document.getElementById("item-list");
-  const codeOutputEl = document.getElementById("code-output");
-  const refreshBtn = document.getElementById("refresh-btn");
-  let checkedIndices = new Set();
-
-  function render() {
-    const indices = Array.from(itemsByIndex.keys()).sort((a, b) => a - b);
-    if (indices.length === 0) {
-      itemListEl.innerHTML = '<div id="empty-msg">대상자 정보가 없습니다(링크가 잘못됐을 수 있습니다).</div>';
-      return;
+    function checksum(str) {
+      let sum = 0;
+      for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
+      return sum % 36;
     }
-    itemListEl.innerHTML = "";
-    for (const idx of indices) {
-      const it = itemsByIndex.get(idx);
-      itemListEl.appendChild(renderItemCard(idx, it, checkedIndices.has(idx), toggleCheck));
-    }
-    codeOutputEl.textContent = checkedIndices.size > 0
-      ? buildCompletionCode(checkedIndices, dateStr)
-      : "(체크된 항목 없음)";
-  }
 
-  async function fetchState() {
-    try {
-      const res = await fetch(entryUrl(blobId), { headers: { "Accept": "application/json" } });
-      if (!res.ok) throw new Error("서버 응답 오류(" + res.status + ")");
-      const data = await res.json();
-      checkedIndices = new Set(data.checked || []);
-      render();
-    } catch (e) {
-      showToast("불러오기 실패: " + e.message);
+    function toBase36(val, width) {
+      let v = val;
+      let res = "";
+      if (v === 0) res = "0";
+      while (v > 0) {
+        res = BASE36[v % 36] + res;
+        v = Math.floor(v / 36);
+      }
+      while (res.length < width) res = "0" + res;
+      return res;
     }
-  }
 
-  async function toggleCheck(idx, isChecked) {
-    try {
-      const res = await fetch(entryUrl(blobId));
-      const data = res.ok ? await res.json() : { checked: [] };
-      const current = new Set(data.checked || []);
-      if (isChecked) current.add(idx); else current.delete(idx);
-      const putRes = await fetch(entryUrl(blobId), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ checked: Array.from(current) }),
+    function buildCompletionCode(completedIndices, workDateStr) {
+      const sorted = [...completedIndices].sort((a, b) => a - b);
+      let countStr = String(sorted.length).padStart(2, "0");
+      let body = workDateStr + countStr;
+      for (let idx of sorted) {
+        body += toBase36(idx, 2);
+      }
+      const cs = checksum(body);
+      body += BASE36[cs];
+
+      let display = "";
+      for (let i = 0; i < body.length; i++) {
+        if (i > 0 && i % 4 === 0) display += "-";
+        display += body[i];
+      }
+      return display;
+    }
+
+    /* ==========================================================================
+       2. 상태 관리 (State) & 로컬 스토리지 영속화
+       ========================================================================== */
+    const STORAGE_KEY = "VictimProtection_Mobile_Data";
+
+    let state = {
+      workDate: "",
+      workDateShort: "",
+      items: [],
+      receivedFrames: {},
+      totalFrames: 0,
+      isCompressed: false,
+      viewMode: "auto"
+    };
+
+    function loadState() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.items && parsed.items.length > 0) {
+            state = Object.assign(state, parsed);
+            renderUI();
+          }
+        }
+      } catch (e) {
+        console.error("Local storage load error:", e);
+      }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          workDate: state.workDate,
+          workDateShort: state.workDateShort,
+          items: state.items
+        }));
+      } catch (e) {
+        console.error("Local storage save error:", e);
+      }
+    }
+
+    /* ==========================================================================
+       3. UI 렌더링 & 스마트 필터
+       ========================================================================== */
+    function formatTime(t) {
+      if (!t || t.length < 4) return t || "-";
+      return t.substring(0, 2) + ":" + t.substring(2, 4);
+    }
+
+    function locationName(char) {
+      if (char === "H") return "거주지";
+      if (char === "W") return "직장";
+      return "학교";
+    }
+
+    function renderUI() {
+      const dateLbl = document.getElementById("lbl-date");
+      const emptyState = document.getElementById("empty-state");
+      const cardList = document.getElementById("card-list");
+      const tableBody = document.getElementById("table-tbody");
+
+      if (!state.items || state.items.length === 0) {
+        dateLbl.textContent = "-";
+        emptyState.style.display = "block";
+        cardList.innerHTML = "";
+        tableBody.innerHTML = "";
+        updateProgress();
+        return;
+      }
+
+      dateLbl.textContent = state.workDate ? state.workDate : "20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6);
+      emptyState.style.display = "none";
+
+      populateFilterOptions();
+      applyFilters();
+    }
+
+    function populateFilterOptions() {
+      const selCar = document.getElementById("sel-car");
+      const selPerson = document.getElementById("sel-person");
+
+      const currCar = selCar.value;
+      const currPerson = selPerson.value;
+
+      const cars = new Set();
+      const persons = new Set();
+
+      state.items.forEach(it => {
+        if (it.patrolCar && it.patrolCar !== "-") cars.add(it.patrolCar);
+        if (it.matchedPersonsText && it.matchedPersonsText !== "-") {
+          it.matchedPersonsText.split(",").forEach(p => persons.add(p.trim()));
+        }
       });
-      if (!putRes.ok) throw new Error("저장 실패(" + putRes.status + ")");
-      checkedIndices = current;
-      render();
-      showToast(isChecked ? "체크됨" : "체크 해제됨");
-    } catch (e) {
-      showToast("저장 실패: " + e.message + " — 새로고침 후 다시 시도해주세요");
-      render();
-    }
-  }
 
-  refreshBtn.addEventListener("click", fetchState);
-  render();
-  fetchState();
-}
-
-// ---------------- 관리자(스캔) 모드 ----------------
-function runScanMode() {
-  document.getElementById("scan-mode").style.display = "block";
-
-  let sessionDateStr = null;
-  let totalParts = null;
-  const chunks = new Map(); // partIndex(1부터) -> Uint8Array
-  let fullText = null;      // 모든 파트가 모이면 한 번에 디코딩해서 채워진다
-  let itemsByIndex = new Map();
-
-  const videoEl = document.getElementById("video");
-  const statusEl = document.getElementById("scan-status");
-  const partStatusEl = document.getElementById("part-status");
-  const makeLinkBtn = document.getElementById("make-link-btn");
-
-  // QR의 원시 바이트(code.binaryData)에서 ASCII 헤더("P1/8|260826|")만 먼저 읽고,
-  // 그 뒤(원시 조각)는 한글이 잘려있을 수 있어 문자열로 만들지 않고 바이트 그대로 둔다.
-  function parseFrameBytes(bytes) {
-    if (bytes.length === 0 || bytes[0] !== 0x50 /* 'P' */) return null; // 'P'
-    const bar1 = bytes.indexOf(0x7C); // '|'
-    if (bar1 < 0) return null;
-    const bar2 = bytes.indexOf(0x7C, bar1 + 1);
-    if (bar2 < 0) return null;
-    const headerAscii = new TextDecoder("ascii").decode(bytes.slice(0, bar2 + 1));
-    const partSpec = headerAscii.substring(1, bar1).split("/");
-    const partIndex = parseInt(partSpec[0], 10);
-    const partCount = parseInt(partSpec[1], 10);
-    const dateStr = headerAscii.substring(bar1 + 1, bar2);
-    const chunk = bytes.slice(bar2 + 1);
-    return { partIndex, partCount, dateStr, chunk };
-  }
-
-  function tryAssembleFullText() {
-    if (totalParts === null) return;
-    for (let i = 1; i <= totalParts; i++) {
-      if (!chunks.has(i)) return; // 아직 다 안 모임
-    }
-    let totalLen = 0;
-    for (let i = 1; i <= totalParts; i++) totalLen += chunks.get(i).length;
-    const merged = new Uint8Array(totalLen);
-    let offset = 0;
-    for (let i = 1; i <= totalParts; i++) {
-      merged.set(chunks.get(i), offset);
-      offset += chunks.get(i).length;
-    }
-    fullText = new TextDecoder("utf-8").decode(merged);
-    itemsByIndex = parseFullText(fullText);
-    if (itemsByIndex.size > 0 || totalParts === 1) makeLinkBtn.style.display = "block";
-  }
-
-  function handleScannedCode(code) {
-    const bytes = code.binaryData ? new Uint8Array(code.binaryData) : new TextEncoder().encode(code.data);
-    const parsed = parseFrameBytes(bytes);
-    if (!parsed) return; // 우리 형식이 아닌 QR은 조용히 무시
-
-    if (sessionDateStr === null) sessionDateStr = parsed.dateStr;
-    else if (sessionDateStr !== parsed.dateStr) {
-      statusEl.textContent = "다른 날짜의 QR입니다. 새로고침 후 오늘 화면부터 다시 스캔해주세요.";
-      return;
-    }
-
-    totalParts = parsed.partCount;
-    const isNewPart = !chunks.has(parsed.partIndex);
-    chunks.set(parsed.partIndex, parsed.chunk);
-
-    partStatusEl.textContent = chunks.size + " / " + totalParts + " 장 스캔 완료";
-    if (isNewPart) {
-      statusEl.textContent = parsed.partIndex + "번째 장 스캔됨";
-      statusEl.className = "ok";
-      if (navigator.vibrate) navigator.vibrate(80);
-      setTimeout(() => { statusEl.className = ""; statusEl.textContent = "카메라를 QR에 비춰주세요"; }, 1000);
-    }
-    tryAssembleFullText();
-  }
-
-  makeLinkBtn.addEventListener("click", async () => {
-    makeLinkBtn.disabled = true;
-    makeLinkBtn.textContent = "링크 만드는 중...";
-    try {
-      const newSessionId = randomSessionId();
-      // 이미 완료 표시된 대상은 처음부터 체크된 상태로 보이도록 초기값에 반영한다.
-      const preChecked = [];
-      for (const [idx, it] of itemsByIndex) if (it.completed) preChecked.push(idx);
-
-      const res = await fetch(entryUrl(newSessionId), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ checked: preChecked }),
+      selCar.innerHTML = '<option value="ALL">전체 순찰차</option>';
+      Array.from(cars).sort().forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c; opt.textContent = c;
+        selCar.appendChild(opt);
       });
-      if (!res.ok) throw new Error("서버 응답 오류(" + res.status + ")");
+      selCar.value = cars.has(currCar) ? currCar : "ALL";
 
-      const shareUrl = location.origin + location.pathname +
-        "?b=" + encodeURIComponent(newSessionId) +
-        "#d=" + encodeURIComponent(sessionDateStr) + "&items=" + encodeURIComponent(fullText || "");
-
-      location.href = shareUrl;
-    } catch (e) {
-      alert("링크 생성 실패: " + e.message + "\n다시 시도해주세요.");
-      makeLinkBtn.disabled = false;
-      makeLinkBtn.textContent = "공유 링크 만들기";
+      selPerson.innerHTML = '<option value="ALL">전체 담당자</option>';
+      Array.from(persons).sort().forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p; opt.textContent = p;
+        selPerson.appendChild(opt);
+      });
+      selPerson.value = persons.has(currPerson) ? currPerson : "ALL";
     }
-  });
 
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  let scanning = false, lastScanTime = 0;
+    function applyFilters() {
+      const sessionFilter = document.getElementById("sel-session").value;
+      const carFilter = document.getElementById("sel-car").value;
+      const personFilter = document.getElementById("sel-person").value;
+      const searchQuery = document.getElementById("txt-search").value.trim().toLowerCase();
 
-  async function startCamera() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      videoEl.srcObject = stream;
-      await videoEl.play();
-      scanning = true;
-      requestAnimationFrame(scanLoop);
-    } catch (e) {
-      statusEl.textContent = "카메라를 사용할 수 없습니다: " + e.message;
+      const filtered = state.items.filter(it => {
+        if (sessionFilter !== "ALL" && it.sessionChar !== sessionFilter) return false;
+        if (carFilter !== "ALL" && it.patrolCar !== carFilter) return false;
+        if (personFilter !== "ALL" && (!it.matchedPersonsText || !it.matchedPersonsText.includes(personFilter))) return false;
+        if (searchQuery) {
+          const matchName = (it.victimName || "").toLowerCase().includes(searchQuery);
+          const matchCar = (it.patrolCar || "").toLowerCase().includes(searchQuery);
+          const matchSeq = (it.seqLabel || "").toLowerCase().includes(searchQuery);
+          if (!matchName && !matchCar && !matchSeq) return false;
+        }
+        return true;
+      });
+
+      renderCards(filtered);
+      renderTable(filtered);
+      updateProgress();
     }
-  }
-  function scanLoop(timestamp) {
-    if (!scanning) return;
-    if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA && timestamp - lastScanTime > 100) {
-      lastScanTime = timestamp;
-      canvas.width = videoEl.videoWidth;
-      canvas.height = videoEl.videoHeight;
-      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code) handleScannedCode(code);
-    }
-    requestAnimationFrame(scanLoop);
-  }
-  startCamera();
-}
 
-document.addEventListener("DOMContentLoaded", () => {
-  if (!blobId) return;
-  const btn = document.getElementById("copy-link-btn");
-  const box = document.getElementById("share-link-section");
-  box.style.display = "block";
-  document.getElementById("share-url-box").textContent = location.href;
-  btn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(location.href);
-      showToast("링크가 복사됐습니다");
-    } catch (e) {
-      showToast("복사 실패 — 주소창을 길게 눌러 직접 복사해주세요");
-    }
-  });
-});
-</script>
+    function renderCards(items) {
+      const container = document.getElementById("card-list");
+      container.innerHTML = "";
 
+      if (items.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted); font-weight:700;">조건에 맞는 순찰 대상이 없습니다.</div>';
+        return;
+      }
+
+      items.forEach(it => {
+        const card = document.createElement("div");
+        card.className = `patrol-card ${it.isCompleted ? "completed" : ""}`;
+        card.id = `card-${it.index}`;
+
+        const locName = locationName(it.locationChar);
+        const sessionName = it.sessionChar === "D" ? "주간" : "야간";
+
+        card.innerHTML = `
+          <div class="card-header">
+            <div class="card-seq-name">
+              <span class="seq-tag">연번 ${it.seqLabel}</span>
+              <span class="victim-name">${it.victimName}</span>
+              <span class="location-badge ${locName}">${locName}</span>
+            </div>
+            <div class="card-time-session">
+              <span class="session-tag ${sessionName}">${sessionName}</span>
+              <span>${formatTime(it.startHHmm)}~${formatTime(it.endHHmm)}</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="info-row">
+              <span class="info-label">담당차량</span>
+              <span class="info-value">${it.patrolCar || "-"}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">매칭인력</span>
+              <span class="info-value">${it.matchedPersonsText || "-"}</span>
+            </div>
+          </div>
+          <button class="btn-complete-toggle ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
+            ${it.isCompleted ? "✓ 이행완료" : "순찰 이행 체크"}
+          </button>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderTable(items) {
+      const tbody = document.getElementById("table-tbody");
+      tbody.innerHTML = "";
+
+      items.forEach(it => {
+        const tr = document.createElement("tr");
+        if (it.isCompleted) tr.className = "completed-row";
+        tr.id = `row-${it.index}`;
+
+        const locName = locationName(it.locationChar);
+        const sessionName = it.sessionChar === "D" ? "주간" : "야간";
+
+        tr.innerHTML = `
+          <td>
+            <button class="btn-table-check ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
+              ${it.isCompleted ? "✓ 완료" : "체크"}
+            </button>
+          </td>
+          <td><strong>${it.seqLabel}</strong></td>
+          <td style="font-weight:700;">${it.victimName}</td>
+          <td><span class="location-badge ${locName}">${locName}</span></td>
+          <td><span class="session-tag ${sessionName}">${sessionName}</span></td>
+          <td>${formatTime(it.startHHmm)}~${formatTime(it.endHHmm)}</td>
+          <td>${it.patrolCar || "-"}</td>
+          <td>${it.matchedPersonsText || "-"}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function toggleComplete(index) {
+      const item = state.items.find(x => x.index === index);
+      if (!item) return;
+
+      item.isCompleted = !item.isCompleted;
+
+      if (navigator.vibrate) {
+        navigator.vibrate(item.isCompleted ? [40, 50, 40] : 30);
+      }
+
+      saveState();
+      applyFilters();
+      showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
+    }
+
+    function updateProgress() {
+      const total = state.items.length;
+      const completed = state.items.filter(x => x.isCompleted).length;
+      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      document.getElementById("lbl-progress-text").textContent = `${completed} / ${total}건 (${percent}%)`;
+      document.getElementById("progress-bar").style.width = `${percent}%`;
+    }
+
+    function setViewMode(mode) {
+      const container = document.getElementById("content-container");
+      const btnCard = document.getElementById("btn-view-card");
+      const btnTable = document.getElementById("btn-view-table");
+
+      container.classList.remove("force-card", "force-table");
+      btnCard.classList.remove("active");
+      btnTable.classList.remove("active");
+
+      if (mode === "card") {
+        container.classList.add("force-card");
+        btnCard.classList.add("active");
+      } else if (mode === "table") {
+        container.classList.add("force-table");
+        btnTable.classList.add("active");
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById("toast-msg");
+      toast.textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2200);
+    }
+
+    /* ==========================================================================
+       4. 실시간 카메라 QR 스캐너 (jsQR + BarcodeDetector 듀얼 가속)
+       ========================================================================== */
+    let videoStream = null;
+    let scanAnimationId = null;
+    let scanning = false;
+    let lastScanTime = 0;
+    const scanCanvas = document.createElement("canvas");
+    const scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
+
+    function openScannerModal() {
+      document.getElementById("modal-scanner").classList.add("show");
+      startCamera();
+    }
+
+    function closeScannerModal() {
+      document.getElementById("modal-scanner").classList.remove("show");
+      stopCamera();
+    }
+
+    async function startCamera() {
+      const video = document.getElementById("scanner-video");
+      const statusLbl = document.getElementById("scan-status");
+      statusLbl.textContent = "카메라를 켜는 중...";
+
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 1280 } }
+        });
+        video.srcObject = videoStream;
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("webkit-playsinline", "true");
+        video.setAttribute("autoplay", "true");
+        video.setAttribute("muted", "true");
+
+        await video.play();
+        statusLbl.textContent = "모니터 QR을 비춰주세요";
+        scanning = true;
+        scanAnimationId = requestAnimationFrame(scanLoop);
+      } catch (err) {
+        console.error("Camera access failed:", err);
+        statusLbl.textContent = "카메라 권한을 승인해주세요";
+      }
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (scanAnimationId) cancelAnimationFrame(scanAnimationId);
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        videoStream = null;
+      }
+    }
+
+    let barcodeDetector = null;
+    if ("BarcodeDetector" in window) {
+      try {
+        barcodeDetector = new BarcodeDetector({ formats: ["qr_code"] });
+      } catch (e) { barcodeDetector = null; }
+    }
+
+    async function scanLoop(timestamp) {
+      if (!scanning) return;
+      const video = document.getElementById("scanner-video");
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA && timestamp - lastScanTime > 80) {
+        lastScanTime = timestamp;
+
+        // 1. 네이티브 BarcodeDetector 우선 시도
+        if (barcodeDetector) {
+          try {
+            const barcodes = await barcodeDetector.detect(video);
+            if (barcodes && barcodes.length > 0) {
+              handleQrRaw(barcodes[0].rawValue);
+            }
+          } catch (e) {}
+        }
+
+        // 2. jsQR 듀얼 시도
+        if (typeof jsQR !== "undefined") {
+          scanCanvas.width = video.videoWidth;
+          scanCanvas.height = video.videoHeight;
+          scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+          const imgData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+          const code = jsQR(imgData.data, imgData.width, imgData.height);
+          if (code && code.data) {
+            handleQrRaw(code.data);
+          }
+        }
+      }
+
+      scanAnimationId = requestAnimationFrame(scanLoop);
+    }
+
+    async function handleQrRaw(raw) {
+      if (!raw || (!raw.startsWith("Z") && !raw.startsWith("P"))) return;
+
+      const isComp = raw.startsWith("Z");
+      const bar1 = raw.indexOf("|");
+      const bar2 = raw.indexOf("|", bar1 + 1);
+      if (bar1 < 0 || bar2 < 0) return;
+
+      const partSpec = raw.substring(1, bar1);
+      const [partIdxStr, totalPartsStr] = partSpec.split("/");
+      const partIdx = parseInt(partIdxStr, 10);
+      const totalParts = parseInt(totalPartsStr, 10);
+      const dateStr = raw.substring(bar1 + 1, bar2);
+      const chunk = raw.substring(bar2 + 1);
+
+      state.workDateShort = dateStr;
+      state.totalFrames = totalParts;
+      state.isCompressed = isComp;
+      state.receivedFrames[partIdx] = chunk;
+
+      const receivedCount = Object.keys(state.receivedFrames).length;
+      document.getElementById("scan-status").textContent = `스캔 진행 중 (${receivedCount}/${totalParts} 완료)`;
+
+      if (receivedCount >= totalParts) {
+        let fullRaw = "";
+        for (let i = 1; i <= totalParts; i++) {
+          fullRaw += state.receivedFrames[i] || "";
+        }
+
+        if (isComp) {
+          try {
+            const decompressedText = await decompressBase64Deflate(fullRaw);
+            parseFullPayload(decompressedText);
+          } catch(err) {
+            console.error("Decompress error:", err);
+            parseFullPayload(fullRaw);
+          }
+        } else {
+          parseFullPayload(fullRaw);
+        }
+
+        closeScannerModal();
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        showToast("전체 순찰 대상 동기화 완료!");
+      }
+    }
+
+    // Base64 디코딩 후 DecompressionStream(deflate-raw)으로 0.05초 만에 복원
+    async function decompressBase64Deflate(base64Str) {
+      const binaryString = atob(base64Str);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      if ("DecompressionStream" in window) {
+        const ds = new DecompressionStream("deflate-raw");
+        const writer = ds.writable.getWriter();
+        writer.write(bytes);
+        writer.close();
+        const buffer = await new Response(ds.readable).arrayBuffer();
+        return new TextDecoder("utf-8").decode(buffer);
+      }
+      return base64Str;
+    }
+
+    function parseFullPayload(payloadText) {
+      const rows = payloadText.split("~");
+      const items = [];
+      rows.forEach(r => {
+        const f = r.split(":");
+        if (f.length >= 10) {
+          items.push({
+            index: parseInt(f[0], 10),
+            seqLabel: f[1],
+            victimName: f[2],
+            locationChar: f[3],
+            sessionChar: f[4],
+            startHHmm: f[5],
+            endHHmm: f[6],
+            patrolCar: f[7],
+            matchedPersonsText: f[8],
+            isCompleted: f[9] === "1"
+          });
+        }
+      });
+
+      state.items = items;
+      state.receivedFrames = {};
+      saveState();
+      renderUI();
+    }
+
+    /* ==========================================================================
+       5. 완료코드 생성
+       ========================================================================== */
+    function openCodeModal() {
+      if (!state.items || state.items.length === 0) {
+        showToast("먼저 QR 스캔으로 순찰 목록을 받아오세요");
+        return;
+      }
+
+      const completed = state.items.filter(x => x.isCompleted);
+      const completedIndices = completed.map(x => x.index);
+      const code = buildCompletionCode(completedIndices, state.workDateShort || "260826");
+
+      document.getElementById("disp-code").textContent = code;
+      document.getElementById("lbl-code-count").textContent = `${completed.length}건`;
+      document.getElementById("modal-code").classList.add("show");
+    }
+
+    function closeCodeModal() {
+      document.getElementById("modal-code").classList.remove("show");
+    }
+
+    function copyCodeToClipboard() {
+      const code = document.getElementById("disp-code").textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => showToast("완료코드가 복사되었습니다"));
+      } else {
+        showToast("코드: " + code);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadState();
+    });
+  </script>
 </body>
 </html>

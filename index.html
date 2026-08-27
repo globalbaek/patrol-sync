@@ -613,6 +613,7 @@
     <div class="view-toggle-group">
       <button class="btn-toggle active" id="btn-view-card" onclick="setViewMode('card')">카드</button>
       <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('table')">표</button>
+      <button class="btn-toggle" style="color:var(--danger);" onclick="confirmResetData()" title="데이터 초기화">초기화</button>
     </div>
   </div>
 
@@ -739,12 +740,7 @@
     const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     // ===== Firebase Realtime Database 설정 =====
-    // 무료 Firebase 프로젝트의 Realtime Database URL을 아래에 넣어주세요
-    // (Firebase 콘솔 > 빌드 > Realtime Database 화면 상단에 표시되는
-    //  "https://프로젝트이름-default-rtdb.리전.firebasedatabase.app" 형식의 주소).
-    // 비워두면(기본값) 실시간공유 없이도 QR 전송/완료코드 등 나머지 기능은 그대로
-    // 정상 동작한다 - 클라우드 미설정을 화면에 알리고 자동으로 조용히 건너뛴다.
-    const FIREBASE_DB_URL = "https://bumpy-mobile-system-default-rtdb.firebaseio.com"; // 끝의 '/'는 뺀다(경로 조합 시 중복 슬래시 방지)
+    const FIREBASE_DB_URL = "https://bumpy-mobile-system-default-rtdb.firebaseio.com";
     const FIREBASE_SYNC_PATH = "patrolSync";
 
     function checksum(str) {
@@ -768,7 +764,7 @@
     function buildCompletionCode(completedIndices, workDateStr) {
       const sorted = [...completedIndices].sort((a, b) => a - b);
       let countStr = String(sorted.length).padStart(2, "0");
-      let body = (workDateStr || "260826") + countStr;
+      let body = (workDateStr || todayShortStr()) + countStr;
       for (let idx of sorted) {
         body += toBase36(idx, 2);
       }
@@ -805,7 +801,7 @@
     function encodePayloadPack(items, dateStr, sessionId) {
       try {
         const payloadObj = {
-          d: dateStr || state.workDateShort || "260826",
+          d: dateStr || state.workDateShort || todayShortStr(),
           s: sessionId || state.sessionId || "",
           items: items.map(it => ({
             i: it.index,
@@ -843,7 +839,7 @@
 
         if (obj && Array.isArray(obj.items)) {
           return {
-            dateStr: obj.d || "260826",
+            dateStr: obj.d || todayShortStr(),
             sessionId: obj.s || "",
             items: obj.items.map(x => ({
               index: x.i !== undefined ? x.i : x.index,
@@ -857,7 +853,7 @@
               matchedPersonsText: formatMatchedPersons(x.p !== undefined ? x.p : x.matchedPersonsText),
               isCompleted: x.d === 1 || x.isCompleted === true,
               address: x.a !== undefined ? x.a : (x.address || ""),
-              completedTime: x.t || ""
+              completedTime: x.t || (x.d === 1 || x.isCompleted === true ? "완료" : "")
             }))
           };
         }
@@ -887,17 +883,9 @@
     };
 
     let livePollingTimer = null;
-    let lastLocalEditTimestamp = 0; // 로컬 체크 직후 클라우드 덮어쓰기 방지 락
-
-    // 더 이상 자동 재시도가 의미 없는 상태(요청 한도 초과, Firebase 보안 규칙 거부 등)에
-    // 빠지면 true로 바뀐다. 이후 자동 폴링/재시도를 완전히 멈추고 사용자에게 명확히
-    // 알린다 - 안 그러면 "재시도 중..."이라는 문구만 계속 떠서 실제로는 동기화가
-    // 멈췄다는 걸 알 방법이 없다.
+    let lastLocalEditTimestamp = 0;
     let cloudSyncBlocked = false;
 
-    /// 기기의 실제 오늘 날짜를 "yyMMdd"로 반환한다. 예전 실시간공유 링크를 열어보거나
-    /// 한동안 안 쓴 기기에 지난 근무일 자료가 남아있을 때, 그게 오늘 자료인 것처럼
-    /// 착각하지 않도록 판단하는 기준이 된다.
     function todayShortStr() {
       const d = new Date();
       const yy = String(d.getFullYear() % 100).padStart(2, "0");
@@ -932,45 +920,55 @@
     }
 
     async function loadState() {
-      // 1. URL 쿼리스트링 파싱 (?sid=...)
       const urlParams = new URLSearchParams(window.location.search);
       const querySid = urlParams.get("sid");
 
-      // 2. URL 해시(#data=...) 확인
+      // 1. URL 해시(#data=...) 확인
       const hasHash = checkUrlHashData(querySid);
 
-      // 3. 해시가 없는 경우 (새로고침 / 재진입 시 최근 저장된 날짜의 데이터 복원)
+      // 2. 해시가 없는 경우: 오늘 날짜의 세션이 저장되어 있을 때만 자동 복원
       if (!hasHash) {
         try {
           const activeDate = localStorage.getItem(STORAGE_KEY_CURRENT_DATE);
-          const savedData = activeDate ? localStorage.getItem(getStorageKeyData(activeDate)) : null;
+          const todayStr = todayShortStr();
 
-          if (savedData) {
-            const parsed = JSON.parse(savedData);
-            if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-              state.workDateShort = parsed.workDateShort || activeDate || "";
-              state.workDate = parsed.workDate || "";
-              state.sessionId = querySid || parsed.sessionId || "";
-              state.items = parsed.items;
+          // 오늘 날짜로 작업하던 데이터가 있을 때만 자동 복원 (과거 데이터는 자동 로드하지 않음)
+          if (activeDate && activeDate === todayStr) {
+            const savedData = localStorage.getItem(getStorageKeyData(activeDate));
+            if (savedData) {
+              const parsed = JSON.parse(savedData);
+              if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+                state.workDateShort = parsed.workDateShort || activeDate;
+                state.workDate = parsed.workDate || ("20" + activeDate.substring(0,2) + "-" + activeDate.substring(2,4) + "-" + activeDate.substring(4,6));
+                state.sessionId = querySid || parsed.sessionId || "";
+                state.items = parsed.items;
 
-              const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
-              state.items.forEach(it => {
-                it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
-                if (localCheckTimes[it.index] !== undefined) {
-                  it.isCompleted = true;
-                  it.completedTime = localCheckTimes[it.index];
-                }
-              });
+                const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
+                state.items.forEach(it => {
+                  it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
+                  if (localCheckTimes[it.index] !== undefined) {
+                    it.isCompleted = true;
+                    it.completedTime = localCheckTimes[it.index];
+                  }
+                });
 
-              renderUI();
+                renderUI();
+              }
             }
+          } else {
+            // 과거 날짜 데이터는 화면에 자동 로드하지 않고 깨끗한 초기 상태 표시
+            state.items = [];
+            state.workDate = "";
+            state.workDateShort = "";
+            state.sessionId = "";
+            renderUI();
           }
         } catch (e) {
           console.error("Local storage load error:", e);
         }
       }
 
-      if (state.sessionId) {
+      if (state.sessionId && state.items.length > 0) {
         setSyncStatus("실시간 동기화 연결 중...");
         await fetchCloudChecks();
         startLivePolling();
@@ -979,13 +977,8 @@
 
     function saveState() {
       try {
-        if (!state.workDateShort) return;
+        if (!state.workDateShort || !state.items || state.items.length === 0) return;
 
-        // "다음에 바로 열었을 때 자동으로 이어볼 날짜" 포인터는 오늘 날짜일 때만 갱신한다.
-        // 예전 실시간공유 링크를 실수로 열어보거나(#data=에 지난 날짜가 박혀있음), 오랜만에
-        // 켠 기기에 지난 근무일 자료가 남아있는 경우까지 "현재 활성 날짜"로 삼아버리면,
-        // 이후 그냥 주소로 들어올 때마다 계속 그 옛날 자료가 자동으로 뜨는 문제가 생긴다
-        // (실제로 8/4치 100% 완료 화면이 계속 자동으로 불려나온 원인이 이것이었다).
         if (state.workDateShort === todayShortStr()) {
           localStorage.setItem(STORAGE_KEY_CURRENT_DATE, state.workDateShort);
         }
@@ -999,13 +992,32 @@
         const checkTimesMap = {};
         state.items.forEach(it => {
           if (it.isCompleted) {
-            checkTimesMap[it.index] = it.completedTime || "";
+            checkTimesMap[it.index] = it.completedTime || "완료";
           }
         });
         saveLocalCompletedTimesMap(state.workDateShort, checkTimesMap);
       } catch (e) {
         console.error("Local storage save error:", e);
       }
+    }
+
+    function confirmResetData() {
+      if (!confirm("현재 기기에 저장된 순찰 데이터를 초기화하시겠습니까? (PC 화면의 QR 코드를 다시 스캔하면 언제든 최신 데이터로 가져올 수 있습니다)")) {
+        return;
+      }
+      state.items = [];
+      state.workDate = "";
+      state.workDateShort = "";
+      state.sessionId = "";
+      state.receivedFrames = {};
+      state.totalFrames = 0;
+      localStorage.removeItem(STORAGE_KEY_CURRENT_DATE);
+      if (livePollingTimer) {
+        clearInterval(livePollingTimer);
+        livePollingTimer = null;
+      }
+      renderUI();
+      showToast("순찰 데이터가 초기화되었습니다.");
     }
 
     function checkUrlHashData(querySid) {
@@ -1019,23 +1031,16 @@
           const b64Data = cleanHash.substring(5);
           const unpacked = decodePayloadPack(b64Data);
           if (unpacked && Array.isArray(unpacked.items) && unpacked.items.length > 0) {
-            const newDateShort = unpacked.dateStr || "260826";
+            const newDateShort = unpacked.dateStr || todayShortStr();
             
-            // 날짜가 바뀐 경우 세션 ID도 새 날짜의 것으로 갱신
             state.workDateShort = newDateShort;
             state.workDate = "20" + newDateShort.substring(0,2) + "-" + newDateShort.substring(2,4) + "-" + newDateShort.substring(4,6);
             state.sessionId = querySid || unpacked.sessionId || "";
-
-            const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
-
             state.items = unpacked.items;
+
             state.items.forEach(it => {
               it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
-              // 로컬에 체크 기록이 있으면 유지, 없으면 URL의 체크 상태 반영
-              if (localCheckTimes[it.index] !== undefined) {
-                it.isCompleted = true;
-                it.completedTime = localCheckTimes[it.index];
-              } else if (it.isCompleted && !it.completedTime) {
+              if (it.isCompleted && !it.completedTime) {
                 it.completedTime = "완료";
               }
             });
@@ -1067,10 +1072,6 @@
       return !!FIREBASE_DB_URL && FIREBASE_DB_URL.indexOf("https://") === 0;
     }
 
-    /// 더 이상 자동으로 재시도해봐야 소용없는 상태(요청 한도 초과, 보안 규칙 거부 등)에
-    /// 빠졌을 때 호출한다. 이후 자동 폴링/재시도를 전부 멈추고, 실제로는 팀원과 동기화가
-    /// 안 되고 있다는 사실을 화면에 분명히 남긴다(완료코드로 PC에 직접 반영하는 방법은
-    /// 클라우드와 무관하게 항상 정상 동작한다). 새로고침하면 다시 시도한다.
     function stopCloudSync(message) {
       cloudSyncBlocked = true;
       if (livePollingTimer) {
@@ -1096,8 +1097,6 @@
           if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
         });
 
-        // Firebase Realtime DB에 POST하면 자동 생성된 키를 돌려준다 - 이 키를
-        // restful-api.dev의 "id"와 같은 역할(세션 식별자)로 그대로 쓴다.
         const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}.json`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1139,7 +1138,6 @@
     async function pushCloudChecks() {
       if (cloudSyncBlocked) return;
       if (!state.sessionId) {
-        // 미설정 상태 메시지는 ensureCloudSession이 자체적으로 표시한다.
         await ensureCloudSession();
         if (!state.sessionId) return;
       }
@@ -1186,7 +1184,7 @@
     async function fetchCloudChecks() {
       if (cloudSyncBlocked) return;
       if (!firebaseConfigured()) return;
-      if (!state.sessionId) return;
+      if (!state.sessionId || !state.items || state.items.length === 0) return;
 
       // 사용자가 최근 4초 이내에 로컬에서 체크를 수정한 경우 클라우드 덮어쓰기 일시 중지 (Race Condition 방어)
       if (Date.now() - lastLocalEditTimestamp < 4000) {
@@ -1206,11 +1204,8 @@
         }
         if (!res.ok) return;
 
-        // Firebase는 restful-api.dev와 달리 {data:...} 래핑 없이 저장한 객체를
-        // 그대로 돌려준다(경로가 비어있으면 null).
         const data = await res.json();
         if (data && Array.isArray(data.completed)) {
-          // 만약 원격 데이터의 날짜가 현재 날짜와 다르면 무시
           if (data.date && data.date !== state.workDateShort) {
             return;
           }
@@ -1242,10 +1237,6 @@
       }
     }
 
-    // Firebase 무료(Spark) 요금제는 폴링 몇 초 간격 정도로는 한도에 걸리지 않지만,
-    // 그래도 화면이 꺼져있거나 다른 앱으로 전환돼있는 동안(순찰 중 휴대폰이 주머니에
-    // 있는 시간이 대부분)은 폴링을 멈춰 불필요한 트래픽을 아낀다. 화면으로 돌아오면
-    // 즉시 한 번 갱신한다.
     const LIVE_POLL_INTERVAL_MS = 5000;
 
     function startLivePolling() {
@@ -1260,7 +1251,7 @@
           clearInterval(livePollingTimer);
           livePollingTimer = null;
         }
-      } else if (state.sessionId && !cloudSyncBlocked) {
+      } else if (state.sessionId && !cloudSyncBlocked && state.items && state.items.length > 0) {
         fetchCloudChecks();
         startLivePolling();
       }
@@ -1280,9 +1271,6 @@
       return "학교";
     }
 
-    /// 지금 화면에 떠 있는 자료의 근무일자가 기기의 실제 오늘 날짜와 다르면 경고띠를
-    /// 띄운다. 예전 실시간공유 링크를 열어봤거나, 오랜만에 켠 기기에 지난 근무일 자료가
-    /// 남아있는 경우를 "지금 진행 중인 오늘 순찰"로 착각하지 않도록 막는 안전장치다.
     function updateStaleBanner() {
       const banner = document.getElementById("stale-banner");
       if (!banner) return;
@@ -1354,7 +1342,6 @@
       selPerson.value = persons.has(currPerson) ? currPerson : "ALL";
     }
 
-    // 시간 순 정렬 키 계산 (야간 00:00~07:30은 자정 넘긴 익일 새벽이므로 +24시간 가산)
     function getTimeSortKey(it) {
       let hh = 0, mm = 0;
       if (it.startHHmm && it.startHHmm.length >= 4) {
@@ -1363,7 +1350,7 @@
       }
       let minutes = hh * 60 + mm;
       if (it.sessionChar === "N" && hh < 12) {
-        minutes += 24 * 60; // 익일 새벽 시간으로 정렬 (예: 23:00 -> 06:00 순)
+        minutes += 24 * 60;
       }
       return minutes;
     }
@@ -1500,7 +1487,7 @@
       const item = state.items.find(x => x.index === index);
       if (!item) return;
 
-      lastLocalEditTimestamp = Date.now(); // 락 설정
+      lastLocalEditTimestamp = Date.now();
 
       if (item.isCompleted) {
         item.isCompleted = false;
@@ -1517,12 +1504,10 @@
         navigator.vibrate(item.isCompleted ? [40, 50, 40] : 30);
       }
 
-      // 로컬 즉시 영구 저장 및 렌더링
       saveState();
       applyFilters();
       showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료 (${item.completedTime})` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
 
-      // 클라우드 즉시 푸시
       await pushCloudChecks();
     }
 
@@ -1571,6 +1556,8 @@
     const scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
 
     function openScannerModal() {
+      state.receivedFrames = {};
+      state.totalFrames = 0;
       document.getElementById("modal-scanner").classList.add("show");
       startCamera();
     }
@@ -1667,6 +1654,11 @@
       const dateStr = raw.substring(bar1 + 1, bar2);
       const chunk = raw.substring(bar2 + 1);
 
+      // 날짜나 총 프레임 수가 달라지면 이전 수신 프레임 초기화
+      if (state.workDateShort !== dateStr || state.totalFrames !== totalParts) {
+        state.receivedFrames = {};
+      }
+
       state.workDateShort = dateStr;
       state.workDate = "20" + dateStr.substring(0,2) + "-" + dateStr.substring(2,4) + "-" + dateStr.substring(4,6);
       state.totalFrames = totalParts;
@@ -1697,7 +1689,6 @@
 
         closeScannerModal();
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        showToast(`[${state.workDate}] 순찰 대상 동기화 완료!`);
 
         ensureCloudSession();
       }
@@ -1725,38 +1716,46 @@
     function parseFullPayload(payloadText, dateStr) {
       const rows = payloadText.split("~");
       const items = [];
+      let completedCountFromPc = 0;
+
       rows.forEach(r => {
         const f = r.split(":");
         if (f.length >= 10) {
+          const isDone = (f[9] === "1");
+          if (isDone) completedCountFromPc++;
           items.push({
             index: parseInt(f[0], 10),
-            seqLabel: f[1],
-            victimName: f[2],
-            locationChar: f[3],
-            sessionChar: f[4],
-            startHHmm: f[5],
-            endHHmm: f[6],
-            patrolCar: f[7],
-            matchedPersonsText: formatMatchedPersons(f[8]),
-            isCompleted: f[9] === "1",
+            seqLabel: f[1] || "",
+            victimName: f[2] || "",
+            locationChar: f[3] || "H",
+            sessionChar: f[4] || "D",
+            startHHmm: f[5] || "",
+            endHHmm: f[6] || "",
+            patrolCar: f[7] || "",
+            matchedPersonsText: formatMatchedPersons(f[8] || ""),
+            isCompleted: isDone,
             address: f.length >= 11 ? f.slice(10).join(":") : "",
-            completedTime: ""
+            completedTime: isDone ? "PC완료" : ""
           });
         }
       });
 
-      const localCheckTimes = getLocalCompletedTimesMap(dateStr || state.workDateShort);
-      items.forEach(it => {
-        if (localCheckTimes[it.index] !== undefined) {
-          it.isCompleted = true;
-          it.completedTime = localCheckTimes[it.index];
-        }
-      });
+      if (items.length === 0) {
+        showToast("QR 데이터에서 순찰 대상을 찾을 수 없습니다.");
+        return;
+      }
 
+      state.workDateShort = dateStr || todayShortStr();
+      state.workDate = "20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6);
       state.items = items;
       state.receivedFrames = {};
+
+      // QR 스캔 시점의 PC 상태를 마스터로 저장소 갱신
       saveState();
       renderUI();
+
+      const doneMsg = completedCountFromPc > 0 ? ` (이행완료 ${completedCountFromPc}건 반영)` : "";
+      showToast(`[${state.workDate}] 순찰 대상 ${items.length}명 실시간 동기화 완료!${doneMsg}`);
     }
 
     /* ==========================================================================
@@ -1827,7 +1826,7 @@
 
       const completed = state.items.filter(x => x.isCompleted);
       const completedIndices = completed.map(x => x.index);
-      const code = buildCompletionCode(completedIndices, state.workDateShort || "260826");
+      const code = buildCompletionCode(completedIndices, state.workDateShort || todayShortStr());
 
       document.getElementById("disp-code").textContent = code;
       document.getElementById("lbl-code-count").textContent = `${completed.length}건`;

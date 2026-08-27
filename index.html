@@ -103,6 +103,18 @@
     }
     .btn-header:active { transform: scale(0.96); opacity: 0.9; }
 
+    /* 옛날 자료(오늘 날짜가 아님) 경고띠 - 헤더/툴바의 고정 sticky 오프셋과
+       겹치지 않도록 일반 흐름에 둔다(스크롤하면 같이 넘어감). */
+    #stale-banner {
+      background: var(--warning-bg);
+      color: var(--warning);
+      font-weight: 800;
+      font-size: 0.82rem;
+      text-align: center;
+      padding: 9px 14px;
+      border-bottom: 2px solid var(--warning);
+    }
+
     /* 진행률 바 & 실시간 동기화 표시 */
     .progress-section {
       background: rgba(0, 0, 0, 0.28);
@@ -581,6 +593,9 @@
     </div>
   </header>
 
+  <!-- 지금 보이는 자료가 오늘 날짜가 아닐 때만 나타나는 경고띠 -->
+  <div id="stale-banner" style="display:none;"></div>
+
   <!-- 툴바 및 필터 (선택 즉시 자동 반영) -->
   <div class="toolbar">
     <select class="filter-select" id="sel-session" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
@@ -880,6 +895,17 @@
     // 멈췄다는 걸 알 방법이 없다.
     let cloudSyncBlocked = false;
 
+    /// 기기의 실제 오늘 날짜를 "yyMMdd"로 반환한다. 예전 실시간공유 링크를 열어보거나
+    /// 한동안 안 쓴 기기에 지난 근무일 자료가 남아있을 때, 그게 오늘 자료인 것처럼
+    /// 착각하지 않도록 판단하는 기준이 된다.
+    function todayShortStr() {
+      const d = new Date();
+      const yy = String(d.getFullYear() % 100).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return yy + mm + dd;
+    }
+
     function getStorageKeyData(dateStr) {
       return STORAGE_PREFIX_DATA + (dateStr || state.workDateShort || "default");
     }
@@ -955,7 +981,14 @@
       try {
         if (!state.workDateShort) return;
 
-        localStorage.setItem(STORAGE_KEY_CURRENT_DATE, state.workDateShort);
+        // "다음에 바로 열었을 때 자동으로 이어볼 날짜" 포인터는 오늘 날짜일 때만 갱신한다.
+        // 예전 실시간공유 링크를 실수로 열어보거나(#data=에 지난 날짜가 박혀있음), 오랜만에
+        // 켠 기기에 지난 근무일 자료가 남아있는 경우까지 "현재 활성 날짜"로 삼아버리면,
+        // 이후 그냥 주소로 들어올 때마다 계속 그 옛날 자료가 자동으로 뜨는 문제가 생긴다
+        // (실제로 8/4치 100% 완료 화면이 계속 자동으로 불려나온 원인이 이것이었다).
+        if (state.workDateShort === todayShortStr()) {
+          localStorage.setItem(STORAGE_KEY_CURRENT_DATE, state.workDateShort);
+        }
         localStorage.setItem(getStorageKeyData(state.workDateShort), JSON.stringify({
           sessionId: state.sessionId,
           workDate: state.workDate,
@@ -1247,6 +1280,22 @@
       return "학교";
     }
 
+    /// 지금 화면에 떠 있는 자료의 근무일자가 기기의 실제 오늘 날짜와 다르면 경고띠를
+    /// 띄운다. 예전 실시간공유 링크를 열어봤거나, 오랜만에 켠 기기에 지난 근무일 자료가
+    /// 남아있는 경우를 "지금 진행 중인 오늘 순찰"로 착각하지 않도록 막는 안전장치다.
+    function updateStaleBanner() {
+      const banner = document.getElementById("stale-banner");
+      if (!banner) return;
+
+      if (state.items && state.items.length > 0 && state.workDateShort && state.workDateShort !== todayShortStr()) {
+        const shown = state.workDate || ("20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6));
+        banner.textContent = `⚠ 지금 보이는 자료는 오늘이 아니라 ${shown} 근무일 기록입니다 - 오늘 자료를 보려면 PC 화면의 QR을 다시 스캔하세요`;
+        banner.style.display = "block";
+      } else {
+        banner.style.display = "none";
+      }
+    }
+
     function renderUI() {
       const dateLbl = document.getElementById("lbl-date");
       const emptyState = document.getElementById("empty-state");
@@ -1259,12 +1308,14 @@
         cardList.innerHTML = "";
         tableBody.innerHTML = "";
         updateProgress();
+        updateStaleBanner();
         return;
       }
 
       dateLbl.textContent = state.workDate ? state.workDate : ("20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6));
       emptyState.style.display = "none";
 
+      updateStaleBanner();
       populateFilterOptions();
       applyFilters();
     }

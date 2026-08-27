@@ -1,0 +1,1854 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1e3a8a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>범피 모바일 매니저</title>
+
+  <!-- 경량 순수 JS QR 디코더 (CDN + 로컬 호환) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-light: #3b82f6;
+      --primary-dark: #0f172a;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #cbd5e1;
+      --border-light: #e2e8f0;
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --warning: #ea580c;
+      --warning-bg: #ffedd5;
+      --danger: #dc2626;
+      --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.08);
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+      --shadow-lg: 0 10px 20px -3px rgb(0 0 0 / 0.15);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "맑은 고딕", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.4;
+      padding-bottom: 90px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 상단 헤더 */
+    header {
+      background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+      color: white;
+      padding: 12px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow);
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .app-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge-date {
+      background: rgba(255, 255, 255, 0.22);
+      font-size: 0.8rem;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 700;
+    }
+    .header-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .btn-header {
+      background: white;
+      color: var(--primary);
+      border: none;
+      padding: 7px 11px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.1s ease;
+    }
+    .btn-header.share {
+      background: #0284c7;
+      color: white;
+    }
+    .btn-header.primary {
+      background: #22c55e;
+      color: white;
+    }
+    .btn-header:active { transform: scale(0.96); opacity: 0.9; }
+
+    /* 옛날 자료(오늘 날짜가 아님) 경고띠 - 헤더/툴바의 고정 sticky 오프셋과
+       겹치지 않도록 일반 흐름에 둔다(스크롤하면 같이 넘어감). */
+    #stale-banner {
+      background: var(--warning-bg);
+      color: var(--warning);
+      font-weight: 800;
+      font-size: 0.82rem;
+      text-align: center;
+      padding: 9px 14px;
+      border-bottom: 2px solid var(--warning);
+    }
+
+    /* 진행률 바 & 실시간 동기화 표시 */
+    .progress-section {
+      background: rgba(0, 0, 0, 0.28);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .progress-labels {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      color: #86efac;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 2px 7px;
+      border-radius: 12px;
+    }
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      background: #22c55e;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #22c55e;
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+    .progress-track {
+      background: rgba(255, 255, 255, 0.2);
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      background: linear-gradient(90deg, #4ade80, #22c55e);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    /* 필터 & 툴바 */
+    .toolbar {
+      padding: 10px 14px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      position: sticky;
+      top: 96px;
+      z-index: 90;
+      box-shadow: var(--shadow-sm);
+    }
+    .filter-select, .search-input {
+      padding: 7px 10px;
+      font-size: 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      color: var(--text);
+      outline: none;
+    }
+    .filter-select { font-weight: 700; flex: 1 1 auto; min-width: 100px; cursor: pointer; }
+    .search-input { flex: 2 1 140px; }
+    .view-toggle-group {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .btn-toggle {
+      border: none;
+      background: #f8fafc;
+      padding: 7px 11px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .btn-toggle.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* 메인 컨테이너 */
+    .container {
+      padding: 12px 14px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* 비어있는 상태 */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      background: white;
+      border-radius: var(--radius);
+      border: 1px dashed var(--border);
+      margin-top: 10px;
+    }
+    .empty-icon { font-size: 3.2rem; margin-bottom: 12px; }
+    .empty-title { font-size: 1.15rem; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+    .empty-desc { font-size: 0.85rem; line-height: 1.6; }
+
+    /* ================= 세로 모드: 카드 뷰 (Portrait) ================= */
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .patrol-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .patrol-card.completed {
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card-seq-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .seq-tag {
+      background: #e2e8f0;
+      color: #1e293b;
+      font-weight: 800;
+      font-size: 0.85rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .victim-name {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .location-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: #e0f2fe;
+      color: #0369a1;
+    }
+    .location-badge.직장 { background: #fef3c7; color: #b45309; }
+    .location-badge.학교 { background: #f3e8ff; color: #7e22ce; }
+
+    .card-time-session {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    .session-tag {
+      font-size: 0.75rem;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 800;
+    }
+    .session-tag.주간 { background: #fed7aa; color: #9a3412; }
+    .session-tag.야간 { background: #c7d2fe; color: #3730a3; }
+
+    .card-body {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.85rem;
+      border: 1px solid var(--border-light);
+    }
+    .info-row {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .info-label {
+      color: var(--text-muted);
+      width: 58px;
+      flex-shrink: 0;
+      font-weight: 700;
+    }
+    .info-value {
+      color: var(--text);
+      font-weight: 700;
+      word-break: break-all;
+    }
+    .info-value.address-text {
+      color: #0369a1;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+
+    .btn-complete-toggle {
+      width: 100%;
+      border: 2px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      font-size: 0.95rem;
+      font-weight: 800;
+      padding: 11px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn-complete-toggle.done {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: white;
+      box-shadow: 0 3px 6px rgba(22, 163, 74, 0.35);
+    }
+    .btn-complete-toggle:active { transform: scale(0.98); }
+
+    /* ================= 가로 모드: 테이블 뷰 (Landscape) ================= */
+    .table-responsive {
+      display: none;
+      width: 100%;
+      background: white;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      box-shadow: var(--shadow-sm);
+    }
+    .patrol-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .patrol-table th {
+      background: #1e293b;
+      color: white;
+      padding: 11px 10px;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .patrol-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      color: var(--text);
+    }
+    .patrol-table td.td-address {
+      text-align: left;
+      color: #0369a1;
+      max-width: 250px;
+      white-space: normal;
+      font-size: 0.8rem;
+      line-height: 1.3;
+    }
+    .patrol-table tr:nth-child(even) { background: #f8fafc; }
+    .patrol-table tr.completed-row { background: #f0fdf4 !important; }
+    .btn-table-check {
+      border: 1px solid var(--border);
+      background: white;
+      color: #334155;
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-table-check.done {
+      background: #16a34a;
+      color: white;
+      border-color: #16a34a;
+    }
+
+    /* 화면 모드 자동 전환 (Landscape) */
+    @media (orientation: landscape) {
+      .card-list.auto-switch { display: none; }
+      .table-responsive.auto-switch { display: block; }
+    }
+    .force-table .card-list { display: none !important; }
+    .force-table .table-responsive { display: block !important; }
+    .force-card .card-list { display: flex !important; }
+    .force-card .table-responsive { display: none !important; }
+
+    /* ================= 모달 팝업 ================= */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal-box {
+      background: white;
+      border-radius: 16px;
+      max-width: 480px;
+      width: 100%;
+      max-height: 92vh;
+      overflow-y: auto;
+      padding: 20px;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .modal-title {
+      font-size: 1.2rem;
+      font-weight: 800;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .btn-close-modal {
+      border: none;
+      background: #e2e8f0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-weight: 800;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    /* 실시간 카메라 뷰파인더 */
+    #scanner-container {
+      width: 100%;
+      height: 280px;
+      background: #000000;
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+    }
+    #scanner-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .scan-guide-box {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 200px; height: 200px;
+      border: 3px solid #22c55e;
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+    }
+    .scan-status-pill {
+      position: absolute;
+      bottom: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      font-size: 0.82rem;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    /* 모달 공유/완료코드 박스 */
+    .code-display-box {
+      background: #f8fafc;
+      border: 2px dashed #94a3b8;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .code-value {
+      font-family: "Consolas", monospace;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: 2px;
+      margin-bottom: 10px;
+      user-select: all;
+    }
+    .btn-action-lg {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* 토스트 알림 */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: rgba(15, 23, 42, 0.95);
+      color: white;
+      padding: 11px 20px;
+      border-radius: 30px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      box-shadow: var(--shadow-lg);
+      z-index: 300;
+      transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      pointer-events: none;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+  <!-- 상단 헤더 -->
+  <header>
+    <div class="header-top">
+      <div class="app-title">
+        <span>🛡️ 범피 모바일 매니저</span>
+        <span class="badge-date" id="lbl-date">-</span>
+      </div>
+      <div class="header-actions">
+        <button class="btn-header" onclick="openScannerModal()">📷 QR스캔</button>
+        <button class="btn-header share" onclick="openShareModal()">🔗 실시간공유</button>
+        <button class="btn-header primary" onclick="openCodeModal()">✨ 완료코드</button>
+      </div>
+    </div>
+    <div class="progress-section">
+      <div class="progress-labels">
+        <span>순찰 달성률</span>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          <span id="lbl-sync-status">실시간 동기화 대기</span>
+        </div>
+        <span id="lbl-progress-text">0 / 0건 (0%)</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-bar"></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 지금 보이는 자료가 오늘 날짜가 아닐 때만 나타나는 경고띠 -->
+  <div id="stale-banner" style="display:none;"></div>
+
+  <!-- 툴바 및 필터 (선택 즉시 자동 반영) -->
+  <div class="toolbar">
+    <select class="filter-select" id="sel-session" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
+      <option value="ALL">전체 세션</option>
+      <option value="D">주간 근무</option>
+      <option value="N">야간 근무</option>
+    </select>
+    <select class="filter-select" id="sel-car" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
+      <option value="ALL">전체 순찰차</option>
+    </select>
+    <select class="filter-select" id="sel-person" onchange="applyFilters(); this.blur();" oninput="applyFilters()">
+      <option value="ALL">전체 담당자</option>
+    </select>
+    <input type="text" class="search-input" id="txt-search" placeholder="대상자/위치/주소 검색..." oninput="applyFilters()">
+    <div class="view-toggle-group">
+      <button class="btn-toggle active" id="btn-view-card" onclick="setViewMode('card')">카드</button>
+      <button class="btn-toggle" id="btn-view-table" onclick="setViewMode('table')">표</button>
+      <button class="btn-toggle" style="color:var(--danger);" onclick="confirmResetData()" title="데이터 초기화">초기화</button>
+    </div>
+  </div>
+
+  <!-- 메인 컨테이너 -->
+  <div class="container" id="content-container">
+    
+    <!-- 비어있을 때 안내 -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">📲</div>
+      <div class="empty-title">오늘의 순찰 데이터를 가져오세요</div>
+      <div class="empty-desc">
+        PC 화면의 <strong>[📱 모바일 순찰 전송]</strong> 창을 띄운 뒤,<br>
+        상단의 <strong>[📷 QR스캔]</strong> 버튼을 눌러 모니터를 비추세요.<br><br>
+        스캔 완료 후 <strong>[🔗 실시간공유]</strong>를 누르면 단체방에 링크 하나로 <strong>주소와 이행상황이 실시간 공유</strong>됩니다.
+      </div>
+      <div style="margin-top:18px;">
+        <button class="btn-header primary" style="padding:12px 24px; margin:0 auto; font-size:0.95rem;" onclick="openScannerModal()">
+          📷 PC 모니터 QR 스캔 시작
+        </button>
+      </div>
+    </div>
+
+    <!-- 세로 모드: 카드 목록 -->
+    <div class="card-list auto-switch" id="card-list"></div>
+
+    <!-- 가로 모드: 테이블 목록 -->
+    <div class="table-responsive auto-switch" id="table-wrap">
+      <table class="patrol-table">
+        <thead>
+          <tr>
+            <th>이행</th>
+            <th>연번</th>
+            <th>대상자</th>
+            <th>구분</th>
+            <th>위치(주소)</th>
+            <th>세션</th>
+            <th>시간</th>
+            <th>순찰차</th>
+            <th>매칭인력</th>
+          </tr>
+        </thead>
+        <tbody id="table-tbody"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- 모달 1: QR 스캐너 (jsQR + BarcodeDetector 듀얼 가속) -->
+  <div class="modal-backdrop" id="modal-scanner">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>PC 화면 QR 스캔</span>
+        <button class="btn-close-modal" onclick="closeScannerModal()">✕</button>
+      </div>
+      
+      <div id="scanner-container">
+        <video id="scanner-video" autoplay playsinline webkit-playsinline muted></video>
+        <div class="scan-guide-box"></div>
+        <div class="scan-status-pill" id="scan-status">카메라 준비 중...</div>
+      </div>
+
+      <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">
+        • PC 모니터의 QR 코드를 녹색 사각형 안에 대고 계세요. (1초 만에 자동 인식)
+      </p>
+
+      <button class="btn-header" style="width:100%; justify-content:center; padding:11px;" onclick="closeScannerModal()">닫기</button>
+    </div>
+  </div>
+
+  <!-- 모달 2: 팀원 실시간 공유 링크 -->
+  <div class="modal-backdrop" id="modal-share">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>순찰명단 단체방 실시간 공유</span>
+        <button class="btn-close-modal" onclick="closeShareModal()">✕</button>
+      </div>
+      <div class="code-display-box">
+        <p style="font-size:0.85rem; color:var(--text); font-weight:700; margin-bottom:8px;">
+          카카오톡 / 단체 메신저로 이 링크를 보내세요:
+        </p>
+        <div style="background:white; border:1px solid #cbd5e1; border-radius:6px; padding:10px; font-size:0.75rem; word-break:break-all; color:#0369a1; font-weight:700; max-height:85px; overflow-y:auto; margin-bottom:12px;" id="disp-share-url">
+          실시간 동기화 링크 생성 중...
+        </div>
+        <button class="btn-action-lg" id="btn-copy-share" style="background:#0284c7;" onclick="copyShareUrl()">
+          📋 실시간 공유 링크 복사하기
+        </button>
+      </div>
+      <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5;">
+        ✨ <strong>주소 표시 & 실시간 체크 연동:</strong><br>
+        • 링크를 누르면 전체 대상자(<span id="lbl-share-count">0</span>명)의 <strong>주소와 매칭인력</strong>이 정확하게 표시됩니다.<br>
+        • 팀원들이 체크한 내역 및 <strong>체크 시각(00:00)이 실시간으로 상호 업데이트</strong>됩니다!
+      </p>
+      <button class="btn-header" style="width:100%; justify-content:center; padding:10px;" onclick="closeShareModal()">닫기</button>
+    </div>
+  </div>
+
+  <!-- 모달 3: 완료코드 -->
+  <div class="modal-backdrop" id="modal-code">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>순찰이행 완료코드</span>
+        <button class="btn-close-modal" onclick="closeCodeModal()">✕</button>
+      </div>
+      <div class="code-display-box">
+        <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:8px;">PC 프로그램의 "완료코드 입력" 칸에 입력하세요:</p>
+        <div class="code-value" id="disp-code">------</div>
+        <button class="btn-action-lg" onclick="copyCodeToClipboard()">📋 완료코드 복사</button>
+      </div>
+      <p style="font-size:0.85rem; color:var(--text-muted); text-align:center;">
+        이행완료 처리된 건수: <strong id="lbl-code-count" style="color:var(--success)">0건</strong>
+      </p>
+      <button class="btn-header primary" style="width:100%; justify-content:center; padding:11px;" onclick="closeCodeModal()">확인 완료</button>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 -->
+  <div class="toast" id="toast-msg">알림 메시지</div>
+
+  <!-- JavaScript 핵심 로직: 날짜 격리 저장소, 체크 잠금 동기화, 실시간 엔진 -->
+  <script>
+    /* ==========================================================================
+       1. Base36 및 포매터
+       ========================================================================== */
+    const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+    // ===== Firebase Realtime Database 설정 =====
+    const FIREBASE_DB_URL = "https://bumpy-mobile-system-default-rtdb.firebaseio.com";
+    const FIREBASE_SYNC_PATH = "patrolSync";
+
+    function checksum(str) {
+      let sum = 0;
+      for (let i = 0; i < str.length; i++) sum += str.charCodeAt(i);
+      return sum % 36;
+    }
+
+    function toBase36(val, width) {
+      let v = val;
+      let res = "";
+      if (v === 0) res = "0";
+      while (v > 0) {
+        res = BASE36[v % 36] + res;
+        v = Math.floor(v / 36);
+      }
+      while (res.length < width) res = "0" + res;
+      return res;
+    }
+
+    function buildCompletionCode(completedIndices, workDateStr) {
+      const sorted = [...completedIndices].sort((a, b) => a - b);
+      let countStr = String(sorted.length).padStart(2, "0");
+      let body = (workDateStr || todayShortStr()) + countStr;
+      for (let idx of sorted) {
+        body += toBase36(idx, 2);
+      }
+      const cs = checksum(body);
+      body += BASE36[cs];
+
+      let display = "";
+      for (let i = 0; i < body.length; i++) {
+        if (i > 0 && i % 4 === 0) display += "-";
+        display += body[i];
+      }
+      return display;
+    }
+
+    function formatMatchedPersons(text) {
+      if (!text || text === "-") return "-";
+      const ranks = ["치안총감", "치안정감", "치안감", "경무관", "총경", "경정", "경감", "경위", "경사", "경장", "순경", "행정관", "주무관"];
+      let parts = text.split(/[,/]/).map(p => p.trim());
+      let formatted = parts.map(part => {
+        if (part.includes(" ")) return part;
+        for (let r of ranks) {
+          if (part.startsWith(r) && part.length > r.length) {
+            return r + " " + part.substring(r.length);
+          }
+        }
+        return part;
+      });
+      return formatted.join(", ");
+    }
+
+    /* ==========================================================================
+       2. UTF-8 안전 Base64 직렬화 (날짜, 세션, 주소, 체크시각)
+       ========================================================================== */
+    function encodePayloadPack(items, dateStr, sessionId) {
+      try {
+        const payloadObj = {
+          d: dateStr || state.workDateShort || todayShortStr(),
+          s: sessionId || state.sessionId || "",
+          items: items.map(it => ({
+            i: it.index,
+            l: it.seqLabel,
+            n: it.victimName,
+            c: it.locationChar,
+            m: it.sessionChar,
+            s: it.startHHmm,
+            e: it.endHHmm,
+            car: it.patrolCar,
+            p: it.matchedPersonsText,
+            d: it.isCompleted ? 1 : 0,
+            a: it.address || "",
+            t: it.completedTime || ""
+          }))
+        };
+        const jsonStr = JSON.stringify(payloadObj);
+        const utf8Bytes = encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (match, p1) => {
+          return String.fromCharCode("0x" + p1);
+        });
+        return btoa(utf8Bytes);
+      } catch (e) {
+        console.error("Pack encode error:", e);
+        return "";
+      }
+    }
+
+    function decodePayloadPack(b64Str) {
+      try {
+        const binaryStr = atob(b64Str);
+        const jsonStr = decodeURIComponent(binaryStr.split("").map(c => {
+          return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(""));
+        const obj = JSON.parse(jsonStr);
+
+        if (obj && Array.isArray(obj.items)) {
+          return {
+            dateStr: obj.d || todayShortStr(),
+            sessionId: obj.s || "",
+            items: obj.items.map(x => ({
+              index: x.i !== undefined ? x.i : x.index,
+              seqLabel: x.l !== undefined ? x.l : x.seqLabel,
+              victimName: x.n !== undefined ? x.n : x.victimName,
+              locationChar: x.c !== undefined ? x.c : x.locationChar,
+              sessionChar: x.m !== undefined ? x.m : x.sessionChar,
+              startHHmm: x.s !== undefined ? x.s : x.startHHmm,
+              endHHmm: x.e !== undefined ? x.e : x.endHHmm,
+              patrolCar: x.car !== undefined ? x.car : x.patrolCar,
+              matchedPersonsText: formatMatchedPersons(x.p !== undefined ? x.p : x.matchedPersonsText),
+              isCompleted: x.d === 1 || x.isCompleted === true,
+              address: x.a !== undefined ? x.a : (x.address || ""),
+              completedTime: x.t || (x.d === 1 || x.isCompleted === true ? "완료" : "")
+            }))
+          };
+        }
+        return null;
+      } catch (e) {
+        console.error("Pack decode error:", e);
+        return null;
+      }
+    }
+
+    /* ==========================================================================
+       3. 상태 관리 (State) & 날짜별 완전 독립 스토리지
+       ========================================================================== */
+    const STORAGE_KEY_CURRENT_DATE = "Bumpi_Current_WorkDate";
+    const STORAGE_PREFIX_DATA = "Bumpi_Data_";
+    const STORAGE_PREFIX_CHECKS = "Bumpi_Checks_";
+
+    let state = {
+      sessionId: "",
+      workDate: "",
+      workDateShort: "",
+      items: [],
+      receivedFrames: {},
+      totalFrames: 0,
+      isCompressed: false,
+      viewMode: "auto"
+    };
+
+    let livePollingTimer = null;
+    let lastLocalEditTimestamp = 0;
+    let cloudSyncBlocked = false;
+
+    function todayShortStr() {
+      const d = new Date();
+      const yy = String(d.getFullYear() % 100).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return yy + mm + dd;
+    }
+
+    function getStorageKeyData(dateStr) {
+      return STORAGE_PREFIX_DATA + (dateStr || state.workDateShort || "default");
+    }
+
+    function getStorageKeyChecks(dateStr) {
+      return STORAGE_PREFIX_CHECKS + (dateStr || state.workDateShort || "default");
+    }
+
+    function getLocalCompletedTimesMap(dateStr) {
+      try {
+        const saved = localStorage.getItem(getStorageKeyChecks(dateStr));
+        if (saved) {
+          const map = JSON.parse(saved);
+          if (map && typeof map === "object") return map;
+        }
+      } catch (e) {}
+      return {};
+    }
+
+    function saveLocalCompletedTimesMap(dateStr, map) {
+      try {
+        localStorage.setItem(getStorageKeyChecks(dateStr), JSON.stringify(map));
+      } catch (e) {}
+    }
+
+    async function loadState() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const querySid = urlParams.get("sid");
+
+      // 1. URL 해시(#data=...) 확인
+      const hasHash = checkUrlHashData(querySid);
+
+      // 2. 해시가 없는 경우: 오늘 날짜의 세션이 저장되어 있을 때만 자동 복원
+      if (!hasHash) {
+        try {
+          const activeDate = localStorage.getItem(STORAGE_KEY_CURRENT_DATE);
+          const todayStr = todayShortStr();
+
+          // 오늘 날짜로 작업하던 데이터가 있을 때만 자동 복원 (과거 데이터는 자동 로드하지 않음)
+          if (activeDate && activeDate === todayStr) {
+            const savedData = localStorage.getItem(getStorageKeyData(activeDate));
+            if (savedData) {
+              const parsed = JSON.parse(savedData);
+              if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
+                state.workDateShort = parsed.workDateShort || activeDate;
+                state.workDate = parsed.workDate || ("20" + activeDate.substring(0,2) + "-" + activeDate.substring(2,4) + "-" + activeDate.substring(4,6));
+                state.sessionId = querySid || parsed.sessionId || "";
+                state.items = parsed.items;
+
+                const localCheckTimes = getLocalCompletedTimesMap(state.workDateShort);
+                state.items.forEach(it => {
+                  it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
+                  if (localCheckTimes[it.index] !== undefined) {
+                    it.isCompleted = true;
+                    it.completedTime = localCheckTimes[it.index];
+                  }
+                });
+
+                renderUI();
+              }
+            }
+          } else {
+            // 과거 날짜 데이터는 화면에 자동 로드하지 않고 깨끗한 초기 상태 표시
+            state.items = [];
+            state.workDate = "";
+            state.workDateShort = "";
+            state.sessionId = "";
+            renderUI();
+          }
+        } catch (e) {
+          console.error("Local storage load error:", e);
+        }
+      }
+
+      if (state.sessionId && state.items.length > 0) {
+        setSyncStatus("실시간 동기화 연결 중...");
+        await fetchCloudChecks();
+        startLivePolling();
+      }
+    }
+
+    function saveState() {
+      try {
+        if (!state.workDateShort || !state.items || state.items.length === 0) return;
+
+        if (state.workDateShort === todayShortStr()) {
+          localStorage.setItem(STORAGE_KEY_CURRENT_DATE, state.workDateShort);
+        }
+        localStorage.setItem(getStorageKeyData(state.workDateShort), JSON.stringify({
+          sessionId: state.sessionId,
+          workDate: state.workDate,
+          workDateShort: state.workDateShort,
+          items: state.items
+        }));
+
+        const checkTimesMap = {};
+        state.items.forEach(it => {
+          if (it.isCompleted) {
+            checkTimesMap[it.index] = it.completedTime || "완료";
+          }
+        });
+        saveLocalCompletedTimesMap(state.workDateShort, checkTimesMap);
+      } catch (e) {
+        console.error("Local storage save error:", e);
+      }
+    }
+
+    function confirmResetData() {
+      if (!confirm("현재 기기에 저장된 순찰 데이터를 초기화하시겠습니까? (PC 화면의 QR 코드를 다시 스캔하면 언제든 최신 데이터로 가져올 수 있습니다)")) {
+        return;
+      }
+      state.items = [];
+      state.workDate = "";
+      state.workDateShort = "";
+      state.sessionId = "";
+      state.receivedFrames = {};
+      state.totalFrames = 0;
+      localStorage.removeItem(STORAGE_KEY_CURRENT_DATE);
+      if (livePollingTimer) {
+        clearInterval(livePollingTimer);
+        livePollingTimer = null;
+      }
+      renderUI();
+      showToast("순찰 데이터가 초기화되었습니다.");
+    }
+
+    function checkUrlHashData(querySid) {
+      const hash = window.location.hash;
+      if (!hash || hash.length < 5) return false;
+
+      try {
+        const cleanHash = hash.startsWith("#") ? hash.substring(1) : hash;
+        
+        if (cleanHash.startsWith("data=")) {
+          const b64Data = cleanHash.substring(5);
+          const unpacked = decodePayloadPack(b64Data);
+          if (unpacked && Array.isArray(unpacked.items) && unpacked.items.length > 0) {
+            const newDateShort = unpacked.dateStr || todayShortStr();
+            
+            state.workDateShort = newDateShort;
+            state.workDate = "20" + newDateShort.substring(0,2) + "-" + newDateShort.substring(2,4) + "-" + newDateShort.substring(4,6);
+            state.sessionId = querySid || unpacked.sessionId || "";
+            state.items = unpacked.items;
+
+            state.items.forEach(it => {
+              it.matchedPersonsText = formatMatchedPersons(it.matchedPersonsText);
+              if (it.isCompleted && !it.completedTime) {
+                it.completedTime = "완료";
+              }
+            });
+
+            saveState();
+            renderUI();
+            showToast(`[${state.workDate}] 순찰 대상 ${unpacked.items.length}명 로드 완료!`);
+            return true;
+          }
+        }
+      } catch (e) {
+        console.error("URL Hash parse error:", e);
+      }
+      return false;
+    }
+
+    /* ==========================================================================
+       4. 실시간 클라우드 동기화 엔진 (체크 잠금 & 덮어쓰기 방어)
+       ========================================================================== */
+    function setSyncStatus(text, isOk = true) {
+      const el = document.getElementById("lbl-sync-status");
+      if (el) {
+        el.textContent = text;
+        el.style.color = isOk ? "#86efac" : "#fca5a5";
+      }
+    }
+
+    function firebaseConfigured() {
+      return !!FIREBASE_DB_URL && FIREBASE_DB_URL.indexOf("https://") === 0;
+    }
+
+    function stopCloudSync(message) {
+      cloudSyncBlocked = true;
+      if (livePollingTimer) {
+        clearInterval(livePollingTimer);
+        livePollingTimer = null;
+      }
+      setSyncStatus(message, false);
+    }
+
+    async function ensureCloudSession() {
+      if (state.sessionId) return state.sessionId;
+      if (cloudSyncBlocked) return null;
+      if (!firebaseConfigured()) {
+        setSyncStatus("☁ 클라우드 미설정 - 완료코드를 이용해주세요", false);
+        return null;
+      }
+
+      try {
+        setSyncStatus("클라우드 세션 연결 중...");
+        const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
+        const completedTimes = {};
+        state.items.forEach(x => {
+          if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
+        });
+
+        const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}.json`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date: state.workDateShort,
+            completed: completedIndices,
+            completedTimes: completedTimes,
+            updatedAt: new Date().toISOString()
+          })
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          stopCloudSync("⚠ Firebase 접근 거부 - 보안 규칙을 확인해주세요 (완료코드 이용 가능)");
+          return null;
+        }
+        if (res.status === 429) {
+          stopCloudSync("⚠ 실시간공유 요청 한도 초과 - 완료코드로 동기화해주세요");
+          return null;
+        }
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.name) {
+            state.sessionId = json.name;
+            saveState();
+            startLivePolling();
+            setSyncStatus("실시간 동기화 활성");
+            return json.name;
+          }
+        }
+        setSyncStatus("클라우드 연결 실패 - 완료코드를 이용해주세요", false);
+      } catch (e) {
+        console.warn("Cloud session create failed:", e);
+        setSyncStatus("클라우드 연결 오류 - 완료코드를 이용해주세요", false);
+      }
+      return null;
+    }
+
+    async function pushCloudChecks() {
+      if (cloudSyncBlocked) return;
+      if (!state.sessionId) {
+        await ensureCloudSession();
+        if (!state.sessionId) return;
+      }
+
+      try {
+        const completedIndices = state.items.filter(x => x.isCompleted).map(x => x.index);
+        const completedTimes = {};
+        state.items.forEach(x => {
+          if (x.isCompleted) completedTimes[x.index] = x.completedTime || "";
+        });
+
+        const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}/${state.sessionId}.json`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date: state.workDateShort,
+            completed: completedIndices,
+            completedTimes: completedTimes,
+            updatedAt: new Date().toISOString()
+          })
+        });
+
+        if (res.status === 401 || res.status === 403) {
+          stopCloudSync("⚠ Firebase 접근 거부 - 보안 규칙을 확인해주세요 (완료코드 이용 가능)");
+          return;
+        }
+        if (res.status === 429) {
+          stopCloudSync("⚠ 실시간공유 요청 한도 초과 - 완료코드로 동기화해주세요");
+          return;
+        }
+
+        if (!res.ok) {
+          setSyncStatus("동기화 실패 - 완료코드를 이용해주세요", false);
+          return;
+        }
+
+        setSyncStatus("동기화 완료 (" + new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit', second:'2-digit'}) + ")");
+      } catch (e) {
+        console.warn("Cloud push failed:", e);
+        setSyncStatus("동기화 재시도 중...", false);
+      }
+    }
+
+    async function fetchCloudChecks() {
+      if (cloudSyncBlocked) return;
+      if (!firebaseConfigured()) return;
+      if (!state.sessionId || !state.items || state.items.length === 0) return;
+
+      // 사용자가 최근 4초 이내에 로컬에서 체크를 수정한 경우 클라우드 덮어쓰기 일시 중지 (Race Condition 방어)
+      if (Date.now() - lastLocalEditTimestamp < 4000) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_SYNC_PATH}/${state.sessionId}.json`);
+
+        if (res.status === 401 || res.status === 403) {
+          stopCloudSync("⚠ Firebase 접근 거부 - 보안 규칙을 확인해주세요 (완료코드 이용 가능)");
+          return;
+        }
+        if (res.status === 429) {
+          stopCloudSync("⚠ 실시간공유 요청 한도 초과 - 완료코드로 동기화해주세요");
+          return;
+        }
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (data && Array.isArray(data.completed)) {
+          if (data.date && data.date !== state.workDateShort) {
+            return;
+          }
+
+          const remoteCompletedSet = new Set(data.completed);
+          const remoteTimes = data.completedTimes || {};
+          let hasChange = false;
+
+          state.items.forEach(it => {
+            const remoteDone = remoteCompletedSet.has(it.index);
+            const remoteTime = remoteTimes[it.index] || "";
+
+            if (it.isCompleted !== remoteDone || (remoteDone && it.completedTime !== remoteTime)) {
+              it.isCompleted = remoteDone;
+              it.completedTime = remoteTime;
+              hasChange = true;
+            }
+          });
+
+          if (hasChange) {
+            saveState();
+            applyFilters();
+            showToast("팀원의 순찰 이행사항이 실시간 동기화되었습니다!");
+          }
+          setSyncStatus("실시간 동기화 중");
+        }
+      } catch (e) {
+        console.warn("Cloud fetch failed:", e);
+      }
+    }
+
+    const LIVE_POLL_INTERVAL_MS = 5000;
+
+    function startLivePolling() {
+      if (cloudSyncBlocked) return;
+      if (livePollingTimer) clearInterval(livePollingTimer);
+      livePollingTimer = setInterval(fetchCloudChecks, LIVE_POLL_INTERVAL_MS);
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (livePollingTimer) {
+          clearInterval(livePollingTimer);
+          livePollingTimer = null;
+        }
+      } else if (state.sessionId && !cloudSyncBlocked && state.items && state.items.length > 0) {
+        fetchCloudChecks();
+        startLivePolling();
+      }
+    });
+
+    /* ==========================================================================
+       5. UI 렌더링 & 스마트 필터
+       ========================================================================== */
+    function formatTime(t) {
+      if (!t || t.length < 4) return t || "-";
+      return t.substring(0, 2) + ":" + t.substring(2, 4);
+    }
+
+    function locationName(char) {
+      if (char === "H") return "거주지";
+      if (char === "W") return "직장";
+      return "학교";
+    }
+
+    function updateStaleBanner() {
+      const banner = document.getElementById("stale-banner");
+      if (!banner) return;
+
+      if (state.items && state.items.length > 0 && state.workDateShort && state.workDateShort !== todayShortStr()) {
+        const shown = state.workDate || ("20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6));
+        banner.textContent = `⚠ 지금 보이는 자료는 오늘이 아니라 ${shown} 근무일 기록입니다 - 오늘 자료를 보려면 PC 화면의 QR을 다시 스캔하세요`;
+        banner.style.display = "block";
+      } else {
+        banner.style.display = "none";
+      }
+    }
+
+    function renderUI() {
+      const dateLbl = document.getElementById("lbl-date");
+      const emptyState = document.getElementById("empty-state");
+      const cardList = document.getElementById("card-list");
+      const tableBody = document.getElementById("table-tbody");
+
+      if (!state.items || state.items.length === 0) {
+        dateLbl.textContent = "-";
+        emptyState.style.display = "block";
+        cardList.innerHTML = "";
+        tableBody.innerHTML = "";
+        updateProgress();
+        updateStaleBanner();
+        return;
+      }
+
+      dateLbl.textContent = state.workDate ? state.workDate : ("20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6));
+      emptyState.style.display = "none";
+
+      updateStaleBanner();
+      populateFilterOptions();
+      applyFilters();
+    }
+
+    function populateFilterOptions() {
+      const selCar = document.getElementById("sel-car");
+      const selPerson = document.getElementById("sel-person");
+
+      const currCar = selCar.value;
+      const currPerson = selPerson.value;
+
+      const cars = new Set();
+      const persons = new Set();
+
+      state.items.forEach(it => {
+        if (it.patrolCar && it.patrolCar !== "-") cars.add(it.patrolCar);
+        if (it.matchedPersonsText && it.matchedPersonsText !== "-") {
+          it.matchedPersonsText.split(",").forEach(p => persons.add(p.trim()));
+        }
+      });
+
+      selCar.innerHTML = '<option value="ALL">전체 순찰차</option>';
+      Array.from(cars).sort().forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c; opt.textContent = c;
+        selCar.appendChild(opt);
+      });
+      selCar.value = cars.has(currCar) ? currCar : "ALL";
+
+      selPerson.innerHTML = '<option value="ALL">전체 담당자</option>';
+      Array.from(persons).sort().forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p; opt.textContent = p;
+        selPerson.appendChild(opt);
+      });
+      selPerson.value = persons.has(currPerson) ? currPerson : "ALL";
+    }
+
+    function getTimeSortKey(it) {
+      let hh = 0, mm = 0;
+      if (it.startHHmm && it.startHHmm.length >= 4) {
+        hh = parseInt(it.startHHmm.substring(0, 2), 10) || 0;
+        mm = parseInt(it.startHHmm.substring(2, 4), 10) || 0;
+      }
+      let minutes = hh * 60 + mm;
+      if (it.sessionChar === "N" && hh < 12) {
+        minutes += 24 * 60;
+      }
+      return minutes;
+    }
+
+    function sortItemsByTime(items) {
+      return [...items].sort((a, b) => {
+        const timeA = getTimeSortKey(a);
+        const timeB = getTimeSortKey(b);
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.index || 0) - (b.index || 0);
+      });
+    }
+
+    function applyFilters() {
+      const sessionFilter = document.getElementById("sel-session").value;
+      const carFilter = document.getElementById("sel-car").value;
+      const personFilter = document.getElementById("sel-person").value;
+      const searchQuery = document.getElementById("txt-search").value.trim().toLowerCase();
+
+      const filtered = state.items.filter(it => {
+        if (sessionFilter !== "ALL" && it.sessionChar !== sessionFilter) return false;
+        if (carFilter !== "ALL" && it.patrolCar !== carFilter) return false;
+        if (personFilter !== "ALL" && (!it.matchedPersonsText || !it.matchedPersonsText.includes(personFilter))) return false;
+        if (searchQuery) {
+          const matchName = (it.victimName || "").toLowerCase().includes(searchQuery);
+          const matchCar = (it.patrolCar || "").toLowerCase().includes(searchQuery);
+          const matchSeq = (it.seqLabel || "").toLowerCase().includes(searchQuery);
+          const matchAddr = (it.address || "").toLowerCase().includes(searchQuery);
+          if (!matchName && !matchCar && !matchSeq && !matchAddr) return false;
+        }
+        return true;
+      });
+
+      const sorted = sortItemsByTime(filtered);
+
+      renderCards(sorted);
+      renderTable(sorted);
+      updateProgress();
+    }
+
+    function renderCards(items) {
+      const container = document.getElementById("card-list");
+      container.innerHTML = "";
+
+      if (items.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted); font-weight:700;">조건에 맞는 순찰 대상이 없습니다.</div>';
+        return;
+      }
+
+      items.forEach(it => {
+        const card = document.createElement("div");
+        card.className = `patrol-card ${it.isCompleted ? "completed" : ""}`;
+        card.id = `card-${it.index}`;
+
+        const locName = locationName(it.locationChar);
+        const sessionName = it.sessionChar === "D" ? "주간" : "야간";
+        const formattedPersons = formatMatchedPersons(it.matchedPersonsText);
+
+        const doneButtonLabel = it.isCompleted 
+          ? (it.completedTime ? `✓ 이행완료 (${it.completedTime})` : `✓ 이행완료`)
+          : "순찰 이행 체크";
+
+        card.innerHTML = `
+          <div class="card-header">
+            <div class="card-seq-name">
+              <span class="seq-tag">연번 ${it.seqLabel}</span>
+              <span class="victim-name">${it.victimName}</span>
+              <span class="location-badge ${locName}">${locName}</span>
+            </div>
+            <div class="card-time-session">
+              <span class="session-tag ${sessionName}">${sessionName}</span>
+              <span>${formatTime(it.startHHmm)}~${formatTime(it.endHHmm)}</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="info-row">
+              <span class="info-label">위치주소</span>
+              <span class="info-value address-text">${it.address || "-"}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">담당차량</span>
+              <span class="info-value">${it.patrolCar || "-"}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">매칭인력</span>
+              <span class="info-value">${formattedPersons}</span>
+            </div>
+          </div>
+          <button class="btn-complete-toggle ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
+            ${doneButtonLabel}
+          </button>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderTable(items) {
+      const tbody = document.getElementById("table-tbody");
+      tbody.innerHTML = "";
+
+      items.forEach(it => {
+        const tr = document.createElement("tr");
+        if (it.isCompleted) tr.className = "completed-row";
+        tr.id = `row-${it.index}`;
+
+        const locName = locationName(it.locationChar);
+        const sessionName = it.sessionChar === "D" ? "주간" : "야간";
+        const formattedPersons = formatMatchedPersons(it.matchedPersonsText);
+
+        const tableDoneButtonLabel = it.isCompleted
+          ? (it.completedTime ? `✓ 완료 (${it.completedTime})` : `✓ 완료`)
+          : "체크";
+
+        tr.innerHTML = `
+          <td>
+            <button class="btn-table-check ${it.isCompleted ? "done" : ""}" onclick="toggleComplete(${it.index})">
+              ${tableDoneButtonLabel}
+            </button>
+          </td>
+          <td><strong>${it.seqLabel}</strong></td>
+          <td style="font-weight:700;">${it.victimName}</td>
+          <td><span class="location-badge ${locName}">${locName}</span></td>
+          <td class="td-address">${it.address || "-"}</td>
+          <td><span class="session-tag ${sessionName}">${sessionName}</span></td>
+          <td>${formatTime(it.startHHmm)}~${formatTime(it.endHHmm)}</td>
+          <td>${it.patrolCar || "-"}</td>
+          <td>${formattedPersons}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function toggleComplete(index) {
+      const item = state.items.find(x => x.index === index);
+      if (!item) return;
+
+      lastLocalEditTimestamp = Date.now();
+
+      if (item.isCompleted) {
+        item.isCompleted = false;
+        item.completedTime = "";
+      } else {
+        item.isCompleted = true;
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mm = String(now.getMinutes()).padStart(2, "0");
+        item.completedTime = `${hh}:${mm}`;
+      }
+
+      if (navigator.vibrate) {
+        navigator.vibrate(item.isCompleted ? [40, 50, 40] : 30);
+      }
+
+      saveState();
+      applyFilters();
+      showToast(item.isCompleted ? `[연번 ${item.seqLabel}] ${item.victimName} 이행완료 (${item.completedTime})` : `[연번 ${item.seqLabel}] ${item.victimName} 체크 해제`);
+
+      await pushCloudChecks();
+    }
+
+    function updateProgress() {
+      const total = state.items.length;
+      const completed = state.items.filter(x => x.isCompleted).length;
+      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      document.getElementById("lbl-progress-text").textContent = `${completed} / ${total}건 (${percent}%)`;
+      document.getElementById("progress-bar").style.width = `${percent}%`;
+    }
+
+    function setViewMode(mode) {
+      const container = document.getElementById("content-container");
+      const btnCard = document.getElementById("btn-view-card");
+      const btnTable = document.getElementById("btn-view-table");
+
+      container.classList.remove("force-card", "force-table");
+      btnCard.classList.remove("active");
+      btnTable.classList.remove("active");
+
+      if (mode === "card") {
+        container.classList.add("force-card");
+        btnCard.classList.add("active");
+      } else {
+        container.classList.add("force-table");
+        btnTable.classList.add("active");
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById("toast-msg");
+      toast.textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2200);
+    }
+
+    /* ==========================================================================
+       6. 실시간 카메라 QR 스캐너
+       ========================================================================== */
+    let videoStream = null;
+    let scanAnimationId = null;
+    let scanning = false;
+    let lastScanTime = 0;
+    const scanCanvas = document.createElement("canvas");
+    const scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
+
+    function openScannerModal() {
+      state.receivedFrames = {};
+      state.totalFrames = 0;
+      document.getElementById("modal-scanner").classList.add("show");
+      startCamera();
+    }
+
+    function closeScannerModal() {
+      document.getElementById("modal-scanner").classList.remove("show");
+      stopCamera();
+    }
+
+    async function startCamera() {
+      const video = document.getElementById("scanner-video");
+      const statusLbl = document.getElementById("scan-status");
+      statusLbl.textContent = "카메라를 켜는 중...";
+
+      try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 1280 } }
+        });
+        video.srcObject = videoStream;
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("webkit-playsinline", "true");
+        video.setAttribute("autoplay", "true");
+        video.setAttribute("muted", "true");
+
+        await video.play();
+        statusLbl.textContent = "모니터 QR을 비춰주세요";
+        scanning = true;
+        scanAnimationId = requestAnimationFrame(scanLoop);
+      } catch (err) {
+        console.error("Camera access failed:", err);
+        statusLbl.textContent = "카메라 권한을 승인해주세요";
+      }
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (scanAnimationId) cancelAnimationFrame(scanAnimationId);
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        videoStream = null;
+      }
+    }
+
+    let barcodeDetector = null;
+    if ("BarcodeDetector" in window) {
+      try {
+        barcodeDetector = new BarcodeDetector({ formats: ["qr_code"] });
+      } catch (e) { barcodeDetector = null; }
+    }
+
+    async function scanLoop(timestamp) {
+      if (!scanning) return;
+      const video = document.getElementById("scanner-video");
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA && timestamp - lastScanTime > 80) {
+        lastScanTime = timestamp;
+
+        if (barcodeDetector) {
+          try {
+            const barcodes = await barcodeDetector.detect(video);
+            if (barcodes && barcodes.length > 0) {
+              handleQrRaw(barcodes[0].rawValue);
+            }
+          } catch (e) {}
+        }
+
+        if (typeof jsQR !== "undefined") {
+          scanCanvas.width = video.videoWidth;
+          scanCanvas.height = video.videoHeight;
+          scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+          const imgData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+          const code = jsQR(imgData.data, imgData.width, imgData.height);
+          if (code && code.data) {
+            handleQrRaw(code.data);
+          }
+        }
+      }
+
+      scanAnimationId = requestAnimationFrame(scanLoop);
+    }
+
+    async function handleQrRaw(raw) {
+      if (!raw || (!raw.startsWith("Z") && !raw.startsWith("P"))) return;
+
+      const isComp = raw.startsWith("Z");
+      const bar1 = raw.indexOf("|");
+      const bar2 = raw.indexOf("|", bar1 + 1);
+      if (bar1 < 0 || bar2 < 0) return;
+
+      const partSpec = raw.substring(1, bar1);
+      const [partIdxStr, totalPartsStr] = partSpec.split("/");
+      const partIdx = parseInt(partIdxStr, 10);
+      const totalParts = parseInt(totalPartsStr, 10);
+      const dateStr = raw.substring(bar1 + 1, bar2);
+      const chunk = raw.substring(bar2 + 1);
+
+      // 날짜나 총 프레임 수가 달라지면 이전 수신 프레임 초기화
+      if (state.workDateShort !== dateStr || state.totalFrames !== totalParts) {
+        state.receivedFrames = {};
+      }
+
+      state.workDateShort = dateStr;
+      state.workDate = "20" + dateStr.substring(0,2) + "-" + dateStr.substring(2,4) + "-" + dateStr.substring(4,6);
+      state.totalFrames = totalParts;
+      state.isCompressed = isComp;
+      state.receivedFrames[partIdx] = chunk;
+
+      const receivedCount = Object.keys(state.receivedFrames).length;
+      document.getElementById("scan-status").textContent = `스캔 진행 중 (${receivedCount}/${totalParts} 완료)`;
+
+      if (receivedCount >= totalParts) {
+        let fullRaw = "";
+        for (let i = 1; i <= totalParts; i++) {
+          fullRaw += state.receivedFrames[i] || "";
+        }
+
+        let fullPayload = fullRaw;
+        if (isComp) {
+          try {
+            fullPayload = await decompressBase64Deflate(fullRaw);
+          } catch(err) {
+            console.error("Decompress error:", err);
+          }
+        }
+
+        // 새 스캔 시 이전 세션 ID 초기화 (새로운 클라우드 방 생성)
+        state.sessionId = "";
+        parseFullPayload(fullPayload, dateStr);
+
+        closeScannerModal();
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+        ensureCloudSession();
+      }
+    }
+
+    async function decompressBase64Deflate(base64Str) {
+      const binaryString = atob(base64Str);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      if ("DecompressionStream" in window) {
+        const ds = new DecompressionStream("deflate-raw");
+        const writer = ds.writable.getWriter();
+        writer.write(bytes);
+        writer.close();
+        const buffer = await new Response(ds.readable).arrayBuffer();
+        return new TextDecoder("utf-8").decode(buffer);
+      }
+      return base64Str;
+    }
+
+    function parseFullPayload(payloadText, dateStr) {
+      const rows = payloadText.split("~");
+      const items = [];
+      let completedCountFromPc = 0;
+
+      rows.forEach(r => {
+        const f = r.split(":");
+        if (f.length >= 10) {
+          const isDone = (f[9] === "1");
+          if (isDone) completedCountFromPc++;
+          items.push({
+            index: parseInt(f[0], 10),
+            seqLabel: f[1] || "",
+            victimName: f[2] || "",
+            locationChar: f[3] || "H",
+            sessionChar: f[4] || "D",
+            startHHmm: f[5] || "",
+            endHHmm: f[6] || "",
+            patrolCar: f[7] || "",
+            matchedPersonsText: formatMatchedPersons(f[8] || ""),
+            isCompleted: isDone,
+            address: f.length >= 11 ? f.slice(10).join(":") : "",
+            completedTime: isDone ? "PC완료" : ""
+          });
+        }
+      });
+
+      if (items.length === 0) {
+        showToast("QR 데이터에서 순찰 대상을 찾을 수 없습니다.");
+        return;
+      }
+
+      state.workDateShort = dateStr || todayShortStr();
+      state.workDate = "20" + state.workDateShort.substring(0,2) + "-" + state.workDateShort.substring(2,4) + "-" + state.workDateShort.substring(4,6);
+      state.items = items;
+      state.receivedFrames = {};
+
+      // QR 스캔 시점의 PC 상태를 마스터로 저장소 갱신
+      saveState();
+      renderUI();
+
+      const doneMsg = completedCountFromPc > 0 ? ` (이행완료 ${completedCountFromPc}건 반영)` : "";
+      showToast(`[${state.workDate}] 순찰 대상 ${items.length}명 실시간 동기화 완료!${doneMsg}`);
+    }
+
+    /* ==========================================================================
+       7. 실시간 동기화 공유 링크 생성 및 복사
+       ========================================================================== */
+    async function buildLiveShareUrl() {
+      const baseUrl = location.origin + location.pathname;
+      const sid = await ensureCloudSession();
+      const b64 = encodePayloadPack(state.items, state.workDateShort, sid || "");
+
+      if (sid) {
+        return `${baseUrl}?sid=${encodeURIComponent(sid)}#data=${b64}`;
+      }
+      return `${baseUrl}#data=${b64}`;
+    }
+
+    async function openShareModal() {
+      if (!state.items || state.items.length === 0) {
+        showToast("먼저 PC 화면을 스캔하여 순찰 목록을 받아오세요");
+        return;
+      }
+
+      document.getElementById("modal-share").classList.add("show");
+      document.getElementById("lbl-share-count").textContent = state.items.length;
+      document.getElementById("disp-share-url").textContent = "실시간 동기화 링크 생성 중...";
+
+      const shareUrl = await buildLiveShareUrl();
+      document.getElementById("disp-share-url").textContent = shareUrl;
+    }
+
+    function closeShareModal() {
+      document.getElementById("modal-share").classList.remove("show");
+    }
+
+    async function copyShareUrl() {
+      const shareUrl = await buildLiveShareUrl();
+
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `🛡️ [범피 매니저] ${state.workDate} 순찰 명단`,
+            text: `[${state.workDate}] 범피 모바일 순찰 대상자(${state.items.length}명) 명단입니다:`,
+            url: shareUrl
+          });
+          closeShareModal();
+          return;
+        } catch (e) {}
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          showToast("실시간 공유 링크가 복사되었습니다! 카톡에 붙여넣으세요.");
+          closeShareModal();
+        });
+      } else {
+        showToast("링크가 복사되었습니다.");
+      }
+    }
+
+    /* ==========================================================================
+       8. 완료코드 생성
+       ========================================================================== */
+    function openCodeModal() {
+      if (!state.items || state.items.length === 0) {
+        showToast("먼저 QR 스캔으로 순찰 목록을 받아오세요");
+        return;
+      }
+
+      const completed = state.items.filter(x => x.isCompleted);
+      const completedIndices = completed.map(x => x.index);
+      const code = buildCompletionCode(completedIndices, state.workDateShort || todayShortStr());
+
+      document.getElementById("disp-code").textContent = code;
+      document.getElementById("lbl-code-count").textContent = `${completed.length}건`;
+      document.getElementById("modal-code").classList.add("show");
+    }
+
+    function closeCodeModal() {
+      document.getElementById("modal-code").classList.remove("show");
+    }
+
+    function copyCodeToClipboard() {
+      const code = document.getElementById("disp-code").textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(() => showToast("완료코드가 복사되었습니다"));
+      } else {
+        showToast("코드: " + code);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadState();
+    });
+  </script>
+</body>
+</html>
